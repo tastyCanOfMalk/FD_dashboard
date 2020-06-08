@@ -1,11 +1,9 @@
-# source("src/cleanCombine.R")
-# source("src/BESummaryReport.R")
-# source("src/userFunctions.R")
+source("src/cleanCombine.R")
+source("src/userFunctions.R")
 
 library(plotly)
 library(DT)
 library(shiny)
-library(flexdashboard)
 library(shinydashboard)
 library(scales)
 
