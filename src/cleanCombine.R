@@ -1,7 +1,7 @@
 # Packages, fxns ----
-if (!require("plyr")) install.packages("plyr")
-if (!require("tidyverse")) install.packages("tidyverse")
-if (!require("naniar")) install.packages("naniar")
+# if (!require("plyr")) install.packages("plyr")
+# if (!require("tidyverse")) install.packages("tidyverse")
+# if (!require("naniar")) install.packages("naniar")
 
 library(plyr)
 library(dplyr)
@@ -626,7 +626,7 @@ join_messages <- c(
 # df_defect_no_matching_yield
 # df_yield_no_matching_defect
 
-
+# directories for data import and export
 defect_xlsx_dir <- "data/xlsx/Defect_Data/"
 yield_xlsx_dir  <- "data/xlsx/Yield_Data/"
 defect_xlsx_files <- list.files(defect_xlsx_dir)
