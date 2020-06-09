@@ -632,7 +632,7 @@ server <- function(input, output, session) {
             xlab("Month")+
             ylab("Defect Rate")+
             scale_y_continuous(breaks = seq(0, 
-                                            round(max(df_defect_rate_compare$defect_cost_per_total_fired_cost),2),
+                                            round(max(df_defect_rate_compare$defect_cost_per_total_fired_cost, na.rm = TRUE),2),
                                             .01),
                                labels = percent_format(accuracy = 1))
         
@@ -718,7 +718,7 @@ server <- function(input, output, session) {
             xlab("Month")+
             ylab("Defect Rate")+
             scale_y_continuous(breaks = seq(0, 
-                                            round(max(df_defect_rate_compare$defect_cost_per_total_fired_cost),2),
+                                            round(max(df_defect_rate_compare$defect_cost_per_total_fired_cost, na.rm=TRUE),2),
                                             .01),
                                labels = percent_format(accuracy = 1))
         
@@ -810,6 +810,9 @@ server <- function(input, output, session) {
         
         gp_defect_rate_compare$x$data[[1]]$showlegend = FALSE
         gp_defect_rate_compare$x$data[[2]]$showlegend = FALSE
+        gp_defect_rate_compare$x$data[[1]]$marker$opacity = 0
+        gp_defect_rate_compare$x$data[[2]]$marker$opacity = 0
+        
         gp_defect_rate_compare
         
     })
@@ -1000,7 +1003,7 @@ server <- function(input, output, session) {
             xlab("Month")+
             ylab("Defect Rate")+
             scale_y_continuous(breaks = seq(0, 
-                                            round(max(df_defect_rate_compare$defect_cost_per_total_fired_cost),2),
+                                            round(max(df_defect_rate_compare$defect_cost_per_total_fired_cost, na.rm = TRUE),2),
                                             .01))
         
         ggp_defect_rate_compare <- ggplotly(gg_defect_rate_compare, tooltip = c("text"))%>%
@@ -1120,7 +1123,7 @@ server <- function(input, output, session) {
             xlab("Month")+
             ylab("Defect Rate")+
             scale_y_continuous(breaks = seq(0, 
-                                            round(max(df_defect_rate_compare$defect_cost_per_total_fired_cost),2),
+                                            round(max(df_defect_rate_compare$defect_cost_per_total_fired_cost, na.rm=TRUE),2),
                                             .01))
         
         ggp_defect_rate_compare_line <- ggplotly(gg_defect_rate_compare_line, tooltip = c("text"))%>%
