@@ -13,11 +13,11 @@ library(DT)
 
 year_to_compare  <- 2019
 year_current     <- 2020
-defect_selection <- "BE"
+defect_selection <- "SBS"
 
 filtered_subset <- df_merged %>% 
   dplyr::filter(
-    PPI != "3d" & 
+    PPI != "3d" &
     EC == "None" & 
     (COMPOSITION == "PSZT" | COMPOSITION == "PSZT-FBG")
   )
@@ -298,7 +298,7 @@ gg_defect_rate_compare_line <- df_defect_rate_compare %>%
   xlab("Month")+
   ylab("Defect Rate")+
   scale_y_continuous(breaks = seq(0, 
-                                  round(max(df_defect_rate_compare$defect_cost_per_total_fired_cost),2),
+                                  round(max(df_defect_rate_compare$defect_cost_per_total_fired_cost, na.rm=TRUE),2),
                                   .01))
 
 ggp_defect_rate_compare_line <- ggplotly(gg_defect_rate_compare_line, tooltip = c("text"))%>%
@@ -317,6 +317,8 @@ ggp_defect_rate_compare_line <- ggplotly(gg_defect_rate_compare_line, tooltip = 
   )
 
 # boxplot
+
+
 g.title =    paste0(defect_selection, " Defect Rate,", year_to_compare, "vs", year_current)
 g.subtitle = ""
 g.caption =  ""
@@ -349,6 +351,7 @@ ggp <- ggplotly(gg_t, tooltip = c("text"))
 
 
 ggp$x$data[[2]]$showlegend = FALSE
+ggp$x$data[[1]]$marker$opacity = 0
 ggp
   
 
@@ -364,14 +367,7 @@ df_defect_rate_compare %>%
   scale_fill_brewer(name = "Year", palette = "Paired")+
   scale_color_brewer(name = "Year", palette = "Paired")+
   theme_minimal()
-
   
-  head(my_data)
-  my_data <- data.frame(
-    y = c(rnorm(1000), rnorm(1000, 0.5), rnorm(1000, 1), rnorm(1000, 1.5)),
-    x = c(rep("a", 2000), rep("b", 2000)),
-    m = c(rep("i", 1000), rep("j", 2000), rep("i", 1000))
-  )
   
 # filtered_subset %>% 
 #   # total fired cost
