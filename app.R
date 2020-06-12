@@ -90,8 +90,6 @@ ui <- dashboardPage(
                 menuSubItem("Join warnings", tabName = "joinWarnings")
             )
             
-
-            
         ) # /sidebarMenu
     ), # /dashboardSidebar
 
@@ -150,6 +148,9 @@ ui <- dashboardPage(
                         )# /fluidRow
                     
             ), # /tabItem
+
+# * explore TAB ---------------------------------------------------------------
+
 
 
 # * refresh data TAB ------------------------------------------------------
