@@ -7,6 +7,8 @@ source("src/userFunctions.R")
 
 library(scales)
 library(plotly)
+library(ggrepel)
+library(viridis)
 
 # subset selection --------------------------------------------------------
 select_date_from <- as.Date("2015-01-01")
@@ -161,14 +163,15 @@ t <- filtered_subset %>%
              )))+
   geom_point(alpha=.5,shape=21,color='dodgerblue', stroke=.2, aes(fill=cost_pc))+
   scale_fill_viridis()
-ggplotly(t, tooltip = c("text"))
   geom_label_repel(aes(label=description), data=subset(in_both_stats, total_cost>15000),
                    size=3,
                    box.padding = .2,
                    point.padding = 0,
                    nudge_y = 10000,
                    nudge_x = 500000,
-                   segment.color="grey50")+
+                   segment.color="grey50")
+
+ggplotly(t, tooltip = c("text"))
   
   
   
