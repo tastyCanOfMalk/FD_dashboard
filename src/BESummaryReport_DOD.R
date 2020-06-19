@@ -13,7 +13,7 @@ library(DT)
 
 year_to_compare  <- 2019
 year_current     <- 2020
-defect_selection <- "SBS"
+defect_selection <- "BE"
 
 filtered_subset <- df_merged %>% 
   dplyr::filter(
