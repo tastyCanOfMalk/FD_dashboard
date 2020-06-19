@@ -1,6 +1,6 @@
 get_files <- function(x){
   # load csv files
-  df <- read_csv(x)
+  df <- read_csv(x) %>% clean_names()
 }
 
 clean_column_names <- function(x){
@@ -82,7 +82,7 @@ replace_cost_vol <- function(df){
 
 clean_composition <- function(df){
   
-  new_df <- df
+  new_df <- df[complete.cases(df$COMPOSITION),]
 
   new_df[new_df$COMPOSITION == "PSZT FBG",]$COMPOSITION = "PSZT-FBG"
   new_df[new_df$COMPOSITION == "PSZ-M-ALT",]$COMPOSITION = "PSZM-ALT"
