@@ -27,9 +27,9 @@ source("src/userFunctions.R")
 fnames   = list.files(yield_data_dir, full.names=TRUE)
 
 df_all <- ldply(fnames, get_files) %>% 
-  remove_empty(which = "rows") %>% 
+  # remove_empty(which = "rows") %>% 
   # dplyr::filter(rowSums(is.na(.)) != ncol(.)) %>% 
-  clean_names() %>% 
+  # clean_names() %>% 
   as_tibble()
 
 # reformat columns names / text ----
@@ -58,7 +58,7 @@ df_all <- df_all %>%
     COST_PIECE,
     TOTAL_PACK   # needed to fix pct yield
   ))
-
+ 
 # fix duplicate items per single lotno/kiln ----
 df_all <- 
   # slice single item per lotno/kiln
@@ -396,6 +396,12 @@ if(max_yield_date > max_defect_date){
   
   msg_yield_defect_date_equalizing <- paste("Rows omitted from defect data to ensure matching time periods in joined data:",
                                             rows_removed)
+} else {
+  df_defects_removed_date_out_of_range <- 
+    tibble("No Data")
+  df_yields_removed_date_out_of_range <- 
+    tibble("No Data")
+  msg_yield_defect_date_equalizing <- "No rows omitted"
 }
 
 # join dfs ----
@@ -565,7 +571,7 @@ df_merged <- df_merged %>%
 
 # rename cols ----
 names <- colnames(df_merged)
-data.frame(names)
+# data.frame(names)
 names <- c(
   "FIRE_DATE",
   "month",
