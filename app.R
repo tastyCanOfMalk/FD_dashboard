@@ -1181,7 +1181,7 @@ server <- function(input, output, session) {
     
     # * yield DF
     output$yield_df <- renderDataTable(
-        datatable(df_yields[1:300, -c(2:4)] %>%
+        datatable(df_yields[, -c(2:4)] %>%
                       set_colnames(c(
                           "Fire date",
                           # "month",
@@ -1222,7 +1222,7 @@ server <- function(input, output, session) {
     
     # * defect DF
     output$defect_df <- renderDataTable(
-        datatable(df_defects[1:300, -c(2:4)] %>%
+        datatable(df_defects[, -c(2:4)] %>%
                       set_colnames(c(
                           "Fire date",
                           # "month",
@@ -1268,7 +1268,7 @@ server <- function(input, output, session) {
     
     # * merged DF
     output$merged_df <- renderDataTable(
-        datatable(df_merged[1:300, -c(2:4)] %>%
+        datatable(df_merged[, -c(2:4)] %>%
                       set_colnames(c(
                           "Fire date",
                           # "month",
