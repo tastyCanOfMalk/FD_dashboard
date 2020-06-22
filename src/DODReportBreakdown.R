@@ -9,73 +9,51 @@ library(DT)
 
 # initial variables -------------------------------------------------------
 
+
+
+# subset selection --------------------------------------------------------
+
 year_to_compare  <- 2019
 year_current     <- 2020
 defect_selection <- "BE"
-
-filtered_subset <- df_merged %>% 
-  dplyr::filter(
-    PPI != "3d" &
-    EC == "None" & 
-    (COMPOSITION == "PSZT" | COMPOSITION == "PSZT-FBG")
-  )
-
+select_EC <- "None"
+select_PPI <- c("10","15","20","30", "40","45","5","50","65","80")
+select_COMPOSITION <- c("PSZT", "PSZT-FBG")
+select_KILN <- c("A","AR","B","BR","C","CR","D","DR","E","ER","F","FR","G","GR","H","HR","U")
 
 # Recreate table using df_yields/defects separately -----------------------
 
 options(scipen=999)
 
-# fired totals ----
-# df_yields %>% 
-#   dplyr::filter(
-#     PPI != "3d" &
-#       EC == "None" & 
-#       (COMPOSITION == "PSZT" | COMPOSITION == "PSZT-FBG")
-#   ) %>% 
-#   dplyr::filter((year == year_to_compare | year == year_current)) %>% 
-#   mutate(total_item_fired_cost = TOTAL_ITEM_FIRED * cost_piece) %>% 
-#   group_by(year, month) %>% 
-#   dplyr::summarise(total_fired_cost = sum(total_item_fired_cost))
-
-# defect totals ----
-# df_defects %>% 
-#   dplyr::filter(
-#     PPI != "3d" &
-#       EC == "None" & 
-#       (COMPOSITION == "PSZT" | COMPOSITION == "PSZT-FBG")
-#   ) %>% 
-#   # dplyr::filter((year == year_to_compare | year == year_current) & CAUSE == defect_selection) %>% 
-#   dplyr::filter((year == year_to_compare | year == year_current)) %>%
-#   group_by(year, month, CAUSE) %>% 
-#   dplyr::summarise(total_reject_cost = sum(reject_cost_single_row)) %>% 
-#   pivot_wider(names_from = CAUSE, values_from = total_reject_cost)
-
 # merge both ----
 df_costs_sep <- df_defects %>% 
   dplyr::filter(
-    PPI != "3d" &
-      EC == "None" & 
-      (COMPOSITION == "PSZT" | COMPOSITION == "PSZT-FBG")
+    EC %in% select_EC &
+    PPI %in% select_PPI &
+    COMPOSITION %in% select_COMPOSITION & 
+    KILN %in% select_KILN & 
+    (year == year_to_compare | year == year_current) & 
+    CAUSE == defect_selection
   ) %>% 
-  # dplyr::filter((year == year_to_compare | year == year_current) & CAUSE == defect_selection) %>% 
-  dplyr::filter((year == year_to_compare | year == year_current)) %>%
-  group_by(year, month, CAUSE) %>% 
+  group_by(year, month, year_month, CAUSE) %>% 
   dplyr::summarise(total_reject_cost = sum(reject_cost_single_row)) %>% 
   pivot_wider(names_from = CAUSE, values_from = total_reject_cost) %>% 
   left_join(
     df_yields %>% 
       dplyr::filter(
-        PPI != "3d" &
-          EC == "None" & 
-          (COMPOSITION == "PSZT" | COMPOSITION == "PSZT-FBG")
+        EC %in% select_EC &
+        PPI %in% select_PPI &
+        COMPOSITION %in% select_COMPOSITION & 
+        KILN %in% select_KILN & 
+        (year == year_to_compare | year == year_current)
       ) %>% 
-      dplyr::filter((year == year_to_compare | year == year_current)) %>% 
+      group_by(KILN, ITEM, LOTNO) %>% slice(1) %>% ungroup() %>% 
       mutate(total_item_fired_cost = TOTAL_ITEM_FIRED * cost_piece) %>% 
       group_by(year, month) %>% 
       dplyr::summarise(total_fired_cost = sum(total_item_fired_cost)),
     by = c("year", "month")
   ) %>% 
-  dplyr::select(year, month, total_fired_cost, BE, CW, SBS, PP, BF,DC,OTH,NF,NRS,WHL)
+  dplyr::select(year,month,year_month,total_fired_cost,everything())
 
 df_costs_sep
 
@@ -83,37 +61,36 @@ df_costs_sep
 
 df_costs_merged <- df_merged %>% 
   dplyr::filter(
-    PPI != "3d" &
-      EC == "None" & 
-      (COMPOSITION == "PSZT" | COMPOSITION == "PSZT-FBG")
+    EC %in% select_EC &
+    PPI %in% select_PPI &
+    COMPOSITION %in% select_COMPOSITION & 
+    KILN %in% select_KILN & 
+    (year == year_to_compare | year == year_current) & 
+    CAUSE == defect_selection
   ) %>% 
-  dplyr::filter((year == year_to_compare | year == year_current)) %>%
-  group_by(year, month, CAUSE) %>% 
+  group_by(year, month, year_month, CAUSE) %>% 
   dplyr::summarise(total_reject_cost = sum(reject_cost_single_row_D)) %>% 
   pivot_wider(names_from = CAUSE, values_from = total_reject_cost) %>% 
   left_join(
     df_merged %>% 
       dplyr::filter(
-        PPI != "3d" &
-          EC == "None" & 
-          (COMPOSITION == "PSZT" | COMPOSITION == "PSZT-FBG")
+        EC %in% select_EC &
+        PPI %in% select_PPI &
+        COMPOSITION %in% select_COMPOSITION & 
+        KILN %in% select_KILN & 
+        (year == year_to_compare | year == year_current)
       ) %>% 
-      dplyr::filter((year == year_to_compare | year == year_current)) %>% 
       group_by(ITEM, LOTNO, KILN) %>% slice(1) %>% ungroup() %>% 
       mutate(total_item_fired_cost = TOTAL_ITEM_FIRED_Y * cost_piece) %>% 
       group_by(year, month) %>% 
       dplyr::summarise(total_fired_cost = sum(total_item_fired_cost)),
     by = c("year", "month")
   ) %>% 
-  dplyr::select(year, month, total_fired_cost, BE, CW, SBS, PP, BF,DC,OTH,NF,NRS,WHL)
+  dplyr::select(year, month, year_month, total_fired_cost, everything())
   
 df_costs_merged
   
 # calculate reject rate ---------------------------------------------------
-
-year_to_compare  <- 2019
-year_current     <- 2020
-defect_selection <- "BE"
 
 # get overall rates from sep_
 df_costs_sep_rates <- df_costs_sep %>% 
@@ -139,7 +116,3 @@ df_costs_merged_rates %>%
          savings_loss = (total_fired_cost * last_years_rate) - total_defect_cost) %>% 
   dplyr::select( -last_years_rate)
   
-  
-  
-
-
