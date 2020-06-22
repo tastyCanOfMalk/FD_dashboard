@@ -15,11 +15,25 @@ year_to_compare  <- 2019
 year_current     <- 2020
 defect_selection <- "BE"
 
+select_EC <- "None"
+select_PPI <- c("10","15","20","30","40","45","5","50","65","80")
+select_COMPOSITION <- c("PSZT", "PSZT-FBG")
+select_KILN <- c("A","AR","B","BR","C","CR","D","DR","E","ER","F","FR","G","GR","H","HR","U")
+
+# EC %in% select_EC &
+#   PPI %in% select_PPI &
+#   COMPOSITION %in% select_COMPOSITION & 
+#   KILN %in% select_KILN & 
+#   (year == year_to_compare | year == year_current) & 
+#   CAUSE == defect_selection
+
+
 filtered_subset <- df_merged %>% 
   dplyr::filter(
-    PPI != "3d" &
-    EC == "None" & 
-    (COMPOSITION == "PSZT" | COMPOSITION == "PSZT-FBG")
+    EC %in% select_EC &
+    PPI %in% select_PPI &
+    COMPOSITION %in% select_COMPOSITION &
+    KILN %in% select_KILN
   )
 
 # annual profit loss ------------------------------------------------------
@@ -27,8 +41,7 @@ filtered_subset <- df_merged %>%
 # get defect cost per fired cost
 defect_rate <- filtered_subset %>% 
   # total fired cost
-  dplyr::filter(year == year_to_compare | 
-                  year == year_current) %>% 
+  dplyr::filter(year == year_to_compare | year == year_current) %>% 
   group_by(ITEM, LOTNO, KILN) %>% slice(1) %>% ungroup() %>% 
   mutate(total_item_fired_cost = TOTAL_ITEM_FIRED_Y * cost_piece) %>% 
   group_by(year) %>% 
