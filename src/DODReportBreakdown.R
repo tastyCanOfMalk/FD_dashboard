@@ -111,5 +111,35 @@ df_costs_merged
   
 # calculate reject rate ---------------------------------------------------
 
+year_to_compare  <- 2019
+year_current     <- 2020
+defect_selection <- "BE"
+
+# get overall rates from sep_
+df_costs_sep_rates <- df_costs_sep %>% 
+  dplyr::select(year, month, total_fired_cost, defect_selection) %>% 
+  group_by(year) %>% 
+  dplyr::summarise(total_fired_cost = sum(total_fired_cost),
+                   total_defect_cost = sum(get(defect_selection))) %>% 
+  mutate(defect_rate = total_defect_cost / total_fired_cost)
+df_costs_sep_rates %>% 
+  mutate(last_years_rate = ifelse(year == year_current, df_costs_sep_rates$defect_rate[1], NA),
+         savings_loss = (total_fired_cost * last_years_rate) - total_defect_cost) %>% 
+  dplyr::select( -last_years_rate)
+  
+# get overall rates from merged_
+df_costs_merged_rates <- df_costs_merged %>% 
+  dplyr::select(year, month, total_fired_cost, defect_selection) %>% 
+  group_by(year) %>% 
+  dplyr::summarise(total_fired_cost = sum(total_fired_cost),
+                   total_defect_cost = sum(get(defect_selection))) %>% 
+  mutate(defect_rate = total_defect_cost / total_fired_cost)
+df_costs_merged_rates %>% 
+  mutate(last_years_rate = ifelse(year == year_current, df_costs_merged_rates$defect_rate[1], NA),
+         savings_loss = (total_fired_cost * last_years_rate) - total_defect_cost) %>% 
+  dplyr::select( -last_years_rate)
+  
+  
+  
 
 
