@@ -70,6 +70,14 @@ ui <- dashboardPage(
                 choices = levels(df_merged$KILN),
                 multiple = TRUE,
                 selected = levels(df_merged$KILN)
+            ), 
+            # /SUBSET SELECTION
+            
+            # PROFIT/LOSS BREAKDOWN
+            menuItem(
+                "Profit Loss Breakdown",
+                tabName = "plBreakdown",
+                icon = icon("flask")
             ),
             
             # REFRESH DATA SECTION
@@ -149,7 +157,47 @@ ui <- dashboardPage(
                     
             ), # /tabItem
 
-# * explore TAB ---------------------------------------------------------------
+# * profit loss breakdown TAB ---------------------------------------------------------------
+            tabItem(tabName = "plBreakdown",
+
+                    fluidRow(
+                        box(width = 12,
+                            title = "Explaination",
+                            collapsible = TRUE,
+                            h5("There may be discrepancies between the Excel data versus the data on the Dashboard page. This is most often due to the Dashboard page using the merged data rather than the separate Defect and Yield files. Below shows how the calculations may be different based on which datasets are used. Using the below tables with the Join Warnings supplied in the Raw Data >> Join Warnings tab will explain most discrepancies.")
+                            )
+                    ),
+
+                    fluidRow(
+                        box(width = 6,
+                            title = "Monthly Yield + Defect",
+                            collapsible = TRUE,
+                            dataTableOutput("breakdown_monthly_separate")
+                            ),
+                        
+                        box(width = 6,
+                            title = "Monthly Merged",
+                            collapsible = TRUE,
+                            dataTableOutput("breakdown_monthly_merged")
+                            )
+                    ),
+
+                    fluidRow(
+                        box(width = 6,
+                            title = "Annual Yield + Defect",
+                            collapsible = TRUE,
+                            dataTableOutput("breakdown_annual_separate")
+                            ),
+                        
+                        box(width = 6,
+                            title = "Annual Merged",
+                            collapsible = TRUE,
+                            dataTableOutput("breakdown_annual_merged")
+                            )
+                    )
+                    
+                    ), # /tabItem
+
 
 
 
@@ -321,6 +369,150 @@ server <- function(input, output, session) {
     
     output$test2 <- renderPrint({ 
         })
+    
+    
+    df_costs_sep <- reactive({
+
+        df_defects %>% 
+            dplyr::filter(
+                EC %in% input$select_EC &
+                PPI %in% input$select_PPI &
+                COMPOSITION %in% input$select_COMPOSITION & 
+                KILN %in% input$select_KILN & 
+                (year == input$year_to_compare | year == input$year_current) & 
+                CAUSE == input$defect_selection
+                ) %>% 
+            group_by(year, month, year_month, CAUSE) %>% 
+            dplyr::summarise(total_reject_cost = sum(reject_cost_single_row)) %>% 
+            pivot_wider(names_from = CAUSE, values_from = total_reject_cost) %>% 
+            left_join(
+                df_yields %>% 
+                    dplyr::filter(
+                        EC %in% input$select_EC &
+                        PPI %in% input$select_PPI &
+                        COMPOSITION %in% input$select_COMPOSITION & 
+                        KILN %in% input$select_KILN & 
+                        (year == input$year_to_compare | year == input$year_current)
+                        ) %>% 
+                    mutate(total_item_fired_cost = TOTAL_ITEM_FIRED * cost_piece) %>% 
+                    group_by(year, month) %>% 
+                    dplyr::summarise(total_fired_cost = sum(total_item_fired_cost)),
+                by = c("year", "month")
+            ) %>% 
+            dplyr::select(year, month, year_month, total_fired_cost, everything()) %>% 
+            ungroup() %>% 
+            mutate(defect_rate = get(input$defect_selection) / total_fired_cost)
+    })
+    
+    output$breakdown_monthly_separate <- renderDataTable({
+        
+        datatable(
+            df_costs_sep() %>%
+                dplyr::select(year_month, total_fired_cost, input$defect_selection, defect_rate) %>% 
+                set_colnames(c("Date", "Total fired cost", "Total defect cost", "Defect rate")),
+            options = list(dom = 't', pageLength = 24),
+            class = 'cell-border stripe',
+            caption = paste0("Monthly fired costs & ", input$defect_selection, " defect costs"),
+            rownames = FALSE) %>% 
+            formatCurrency(c("Total fired cost", "Total defect cost"), "$") %>% 
+            formatPercentage("Defect rate", digits = 2)
+        
+    })
+    
+    output$breakdown_annual_separate <- renderDataTable({
+        df_costs_sep_rates <- df_costs_sep() %>% 
+            dplyr::select(year, month, total_fired_cost, input$defect_selection) %>% 
+            group_by(year) %>% 
+            dplyr::summarise(total_fired_cost = sum(total_fired_cost),
+                             total_defect_cost = sum(get(input$defect_selection))) %>% 
+            mutate(defect_rate = total_defect_cost / total_fired_cost)
+        
+        datatable(
+            df_costs_sep_rates %>% 
+                mutate(last_years_rate = ifelse(year == input$year_current, df_costs_sep_rates$defect_rate[1], NA),
+                       savings_loss = (total_fired_cost * last_years_rate) - total_defect_cost) %>% 
+                dplyr::select( -last_years_rate) %>% 
+                set_colnames(c("Year", "Total fired cost", "Total defect cost", "Defect rate", "Savings / Loss")),
+            options = list(dom = 't', pageLength = 2),
+            class = 'cell-border stripe',
+            caption = paste0("Annual fired costs & ", input$defect_selection, " defect costs"),
+            rownames = FALSE) %>% 
+            formatCurrency(c("Total fired cost", "Total defect cost", "Savings / Loss"), "$") %>% 
+            formatPercentage("Defect rate", digits = 2)
+    })
+    
+    df_costs_merged <- reactive({
+
+        df_merged %>% 
+            dplyr::filter(
+                EC %in% input$select_EC &
+                PPI %in% input$select_PPI &
+                COMPOSITION %in% input$select_COMPOSITION & 
+                KILN %in% input$select_KILN & 
+                (year == input$year_to_compare | year == input$year_current) & 
+                CAUSE == input$defect_selection
+                ) %>% 
+            group_by(year, month, year_month, CAUSE) %>% 
+            dplyr::summarise(total_reject_cost = sum(reject_cost_single_row_D)) %>% 
+            pivot_wider(names_from = CAUSE, values_from = total_reject_cost) %>% 
+            left_join(
+                df_merged %>% 
+                    dplyr::filter(
+                        EC %in% input$select_EC &
+                        PPI %in% input$select_PPI &
+                        COMPOSITION %in% input$select_COMPOSITION & 
+                        KILN %in% input$select_KILN & 
+                        (year == input$year_to_compare | year == input$year_current)
+                        ) %>% 
+                    group_by(ITEM, LOTNO, KILN) %>% slice(1) %>% ungroup() %>% 
+                    mutate(total_item_fired_cost = TOTAL_ITEM_FIRED_Y * cost_piece) %>% 
+                    group_by(year, month) %>% 
+                    dplyr::summarise(total_fired_cost = sum(total_item_fired_cost)),
+                by = c("year", "month")
+            ) %>% 
+            dplyr::select(year, month, year_month, total_fired_cost, everything()) %>% 
+            ungroup() %>% 
+            mutate(defect_rate = get(input$defect_selection) / total_fired_cost)
+        
+    })
+
+    output$breakdown_monthly_merged <- renderDataTable({
+
+        datatable(
+            df_costs_merged() %>%
+                dplyr::select(year_month, total_fired_cost, input$defect_selection, defect_rate) %>% 
+                set_colnames(c("Date", "Total fired cost", "Total defect cost", "Defect rate")),
+            options = list(dom = 't', pageLength = 24),
+            class = 'cell-border stripe',
+            caption = paste0("Monthly fired costs & ", input$defect_selection, " defect costs"),
+            rownames = FALSE) %>% 
+            formatCurrency(c("Total fired cost", "Total defect cost"), "$")%>% 
+            formatPercentage("Defect rate", digits = 2)
+
+    })
+    
+    output$breakdown_annual_merged <- renderDataTable({
+        
+        df_costs_merged_rates <- df_costs_merged() %>% 
+            dplyr::select(year, month, total_fired_cost, input$defect_selection) %>% 
+            group_by(year) %>% 
+            dplyr::summarise(total_fired_cost = sum(total_fired_cost),
+                             total_defect_cost = sum(get(input$defect_selection))) %>% 
+            mutate(defect_rate = total_defect_cost / total_fired_cost)
+        
+        datatable(
+            df_costs_merged_rates %>% 
+                mutate(last_years_rate = ifelse(year == input$year_current, df_costs_merged_rates$defect_rate[1], NA),
+                       savings_loss = (total_fired_cost * last_years_rate) - total_defect_cost) %>% 
+                dplyr::select( -last_years_rate) %>% 
+                set_colnames(c("Year", "Total fired cost", "Total defect cost", "Defect rate", "Savings / Loss")),
+            options = list(dom = 't', pageLength = 2),
+            class = 'cell-border stripe',
+            caption = paste0("Annual fired costs & ", input$defect_selection, " defect costs"),
+            rownames = FALSE) %>% 
+            formatCurrency(c("Total fired cost", "Total defect cost", "Savings / Loss"), "$") %>% 
+            formatPercentage("Defect rate", digits = 2)
+    })
     
     
     # output$filtered_subset <- renderDataTable({
