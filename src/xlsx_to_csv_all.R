@@ -1,3 +1,4 @@
+options(java.parameters = "-Xmx8g")
 library(xlsx)
 library(stringr)
 library(readr)
@@ -8,7 +9,8 @@ wd <- getwd()
 defect_xlsx_dir <- paste0(wd, "/data/xlsx/Defect_Data")
 defect_csv_dir <- paste0(wd, "/data/csv/Defect_data/")
 defect_files <- list.files(defect_xlsx_dir, full.names=TRUE)
-defect_latest_file <- defect_files[length(defect_files)]
+# defect_latest_file <- defect_files[length(defect_files)]
+defect_latest_file <- defect_files[5]
 latest_defect_xlsx <- read.xlsx(defect_latest_file, 
                                 "Detail",
                                 colIndex = seq(1:19))

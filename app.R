@@ -1,11 +1,15 @@
+options(java.parameters = "-Xmx8g")
+
 source("src/cleanCombine.R")
 source("src/userFunctions.R")
+
 
 library(plotly)
 library(DT)
 library(shiny)
 library(shinydashboard)
 library(scales)
+
 
 # UI ----------------------------------------------------------------------
 ui <- dashboardPage(
@@ -333,7 +337,6 @@ server <- function(input, output, session) {
 
     source("src/cleanCombine.R")
     source("src/userFunctions.R")
-    
     # source("src/BESummaryReport.R")
     # source("src/BESummaryReport_DOD.R")
     # source("src/userFunctions.R")
