@@ -1,106 +1,14 @@
+source("src/cleanCombine.R")
+source("src/userFunctions.R")
 
-# -------------------------------------------------------------------------
-
- 
-getwd()
-
-
-all_kilns_data   = "data/kiln/Kiln Run Data_2019"
-
-kiln_data_dirs <- list.dirs(all_kilns_data, recursive = FALSE)
-
-
-# A kiln dir
-kiln_data_dirs[1]
-
-# A kiln sub-dirs
-list.dirs(kiln_data_dirs[1])[2:length(list.dirs(kiln_data_dirs[1]))]
-
-# A kiln sub dir CSVs
-list.files(list.dirs(kiln_data_dirs[1])[2:length(list.dirs(kiln_data_dirs[1]))][1], pattern = "CSV")
-
-# csv to df
-
-dir <- list.dirs(kiln_data_dirs[1])[2:length(list.dirs(kiln_data_dirs[1]))][1]
-files <- list.files(list.dirs(kiln_data_dirs[1])[2:length(list.dirs(kiln_data_dirs[1]))][1], pattern = "CSV")
-
-mylist <- list()
-
-for(file in files){
-  mylist <- append(mylist, paste0(dir,"/",file))
-}
-
-df <- ldply(mylist, get_files) %>% 
-  as_tibble()
-
-# try to get lotno
-# list.dirs(kiln_data_dirs[1])[2:length(list.dirs(kiln_data_dirs[1]))][1]
-a <- list.files(kiln_data_dirs[1])[1]
-a <- str_split(a, " ")[[1]][2]
-
-b <- str_split(kiln_data_dirs[1], "/")[[1]][length(str_split(kiln_data_dirs[1], "/")[[1]])]
-b <- str_split(b, "-")[[1]][1]
-
-lotno <- paste0(a,b)
-
-df <- df %>% 
-  mutate(LOTNO = lotno)
-  
-
-
-
-
-# loop --------------------------------------------------------------------
-kilns_dir <- "data/kiln/Kiln Run Data_2019"
-
-kilns <- list.dirs(kilns_dir, recursive = FALSE)
-
-# kilns[1:2]
-
-mylist <- list()
-
-for(x in seq(length(kilns[1:2]))){
-  
-  dir <- kilns[x]
-  
-  # extract kiln name from directory 
-  kiln_name <- str_split(str_split(dir, "/")[[1]][length(str_split(dir, "/")[[1]])], "-")[[1]][1]
-  # print(kiln_name)
-  
-  sub_dir <- list.dirs(dir)[2:length(list.dirs(dir))]
-    
-  for(y in seq(length(sub_dir))){
-    lotno <- str_split(str_split(sub_dir[y], "/")[[1]][length(str_split(sub_dir[y], "/")[[1]])], " ")[[1]][2]
-    lotno <- paste0(lotno, kiln_name)
-    # print(lotno)
-    
-    sub_dir_files <- list.files(sub_dir[y], pattern = "CSV")
-    for(z in seq(length(sub_dir_files))){
-      print(sub_dir[y], sub_dir_files[z])
-      # print(sub_dir)
-      # files <- paste0(sub_dir, "/", sub_dir_files)
-      
-      # mylist <- append(mylist, files)
-    }
-    # print(list.files(sub_dir[y], pattern = "CSV"))
-  }
-  
-  # print(dir)
-  # print(sub_dir)
-  # print(sub_dir)
-  # csv_sub_dir <- list.files(sub_dir, pattern = "CSV")
-  # print(paste0(sub_dir, "/", csv_sub_dir))
-}
-
-
-# general loop working ---------------------------------------------------------------------
+# KILNS A, B ---------------------------------------------------------------------
 kilns_dir <- "data/kiln/Kiln Run Data_2019"
 kilns <- list.dirs(kilns_dir, recursive = FALSE)
 
 mylist <- list()
-test <- tibble()
+kilns_AB <- tibble()
 
-for(kiln in kilns[1]){
+for(kiln in kilns[1:2]){
   # loop thru each primrary kiln folder
   kiln_name <- str_split(str_split(kiln, "/")[[1]][length(str_split(kiln, "/")[[1]])], "-")[[1]][1]
   
@@ -113,6 +21,7 @@ for(kiln in kilns[1]){
     # print("--------------------")
     files <- list(paste0(sub_dir, "/", list.files(sub_dir, pattern = "CSV")))
     
+    # paste lotno, convert dates
     df <- ldply(unlist(files), get_files) %>% 
       mutate(LOTNO = lotno) %>% 
       mutate(new_date_B = as.Date(date, format = "%m/%d/%Y")) %>%
@@ -120,6 +29,7 @@ for(kiln in kilns[1]){
       mutate(date = (ifelse(is.na(new_date_B), as.character(new_date_A), as.character(new_date_B)))) %>% 
       dplyr::select(-c(new_date_B, new_date_A))
     
+    # get setpoint diffs, store max
     df <- df %>% 
       arrange(date, time) %>%
       mutate(
@@ -127,190 +37,219 @@ for(kiln in kilns[1]){
         max_diff_setpoint = max(diff_setpoint, na.rm = TRUE)
       )
 
-    if(lotno == "120519A"){splice = 324}
-    else{
-      splice <- which(df$diff_setpoint == df$max_diff_setpoint)
-      }
+    # assign first splice location based on max_diff_setpoint, handle exceptions
+    if( lotno == "120519A" ){ splice_start = 324 }
+    if( lotno == "012019B" ){ splice_start = 70}
+    else { splice_start <- which(df$diff_setpoint == df$max_diff_setpoint) }
 
-    df <- df[splice:nrow(df),]
+    # splice beginning
+    df <- df[splice_start:nrow(df),]
+
+    # find second splice location based on reaching beginning temp
+    df <- df %>% 
+      mutate(start_temp = kilntemp[1],
+             max_temp = max(kilntemp, na.rm=TRUE),
+             find_end_temp = abs(kilntemp - start_temp))
     
+    max_temp_index <- which(df$kilntemp == df$max_temp)[1]
+    temp_index     <- which.min(df$find_end_temp[max_temp_index:nrow(df)])
+
+    # find splice end, handle exceptions
+    if( lotno == "012019B" ){ splice_end = 1693 }
+    else if( lotno == "012319A" ){ splice_end = 2525 }
+    else if( lotno == "020219B" ){ splice_end = 1673 }
+    else if( lotno == "020919B" ){ splice_end = 1668 }
+    else {splice_end <- max_temp_index + temp_index }
+    
+    df <- df[1:splice_end,]
+
+    # produce new time axis
     df <- df %>% 
       mutate(new_time = seq(1:nrow(df))) %>% 
+      dplyr::select(-c(diff_setpoint, max_diff_setpoint, start_temp, find_end_temp)) %>%
+      mutate(kiln = kiln_name) %>% 
       as_tibble()
     
-    
-    # df <- df %>% 
-    #   arrange(date, time) %>%
-    #   mutate(new_time = seq(1:nrow(df_all))) %>% 
-    #   as_tibble()
-    # 
-    test <- bind_rows(test, df)
+    # bind individual lot df to parent df
+    kilns_AB <- bind_rows(kilns_AB, df)
     
   }
     
 }
  
-test <- test %>% 
+kilns_AB <- kilns_AB %>% 
+  # dplyr::select(-c(diff_setpoint, max_diff_setpoint)) %>% 
   mutate(LOTNO = as.factor(LOTNO))
 
 # testing
-levels(test$LOTNO)
+levels(kilns_AB$LOTNO)
 
 # view many plots
-test %>% 
-  # dplyr::filter(LOTNO %in% levels(test$LOTNO)[1:25]) %>%
-  dplyr::filter(LOTNO %in% levels(test$LOTNO)[26:50]) %>%
-  # dplyr::filter(LOTNO %in% levels(test$LOTNO)[51:55]) %>%
+t <- kilns_AB %>% 
+  # dplyr::filter(LOTNO %in% levels(kilns_AB$LOTNO)) %>%
+  dplyr::filter(LOTNO %in% levels(kilns_AB$LOTNO)[101:120]) %>%
+  # dplyr::filter(LOTNO %in% levels(kilns_AB$LOTNO)[1:25]) %>%
+  # dplyr::filter(LOTNO %in% levels(kilns_AB$LOTNO)[26:50]) %>%
+  # dplyr::filter(LOTNO %in% levels(kilns_AB$LOTNO)[51:55]) %>%
   group_by(LOTNO) %>% 
-  # ggplot(aes(x=new_time, y = kilntemp, color = LOTNO))+
-  ggplot(aes(x=new_time, y = temp_setpoint, color = LOTNO))+
-  geom_point()+
-  geom_line(aes(y=diff_setpoint))+
-  # geom_point()+
-  scale_x_continuous(breaks = seq(0,5000,(60*6)))+
-  scale_y_continuous(limits = c(0,3000),
-                     breaks = seq(0,3000,250))+
-  facet_wrap(~LOTNO)
-ggplotly(t)
-
-# REMOVE TRASH points before temp increase
-# there is always a large change in setpoint diff() before the temp raises (larger than kilntemp)
-test %>% 
-  dplyr::filter(LOTNO %in% levels(test$LOTNO)[20:25]) %>% 
-  group_by(LOTNO) %>% 
-  mutate(diff_setpoint   = temp_setpoint - lag(temp_setpoint)) %>% 
-  mutate(diff_kilntemp = kilntemp - lag(kilntemp)) %>% 
-  ggplot(aes(x=new_time))+
-  geom_point(aes(y=temp_setpoint), color="blue", size=.5)+
-  geom_point(aes(y=diff_setpoint), color="red", size=.5)+
-  geom_point(aes(y=kilntemp), color="green", size=.5)+
-  geom_point(aes(y=diff_kilntemp), color="orange", size=.5)+
-  geom_vline(aes(xintercept=704))+
-  facet_wrap(~LOTNO)
-  
-# find highest setpoint
-
-t <- test %>% 
-  dplyr::select(!c(date, time,new_date_B,new_date_A)) %>% 
-  dplyr::filter(LOTNO == levels(test$LOTNO)[20]) %>% 
-  mutate(diff_setpoint = temp_setpoint - lag(temp_setpoint),
-         max_diff_setpoint = max(diff_setpoint, na.rm=TRUE))
-
-which(t$max_diff_setpoint)
-  
-
-which(t$diff_setpoint == t$max_diff_setpoint)  
-t[704:nrow(t),]
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-max(t$diff_setpoint, na.rm=TRUE)
-  ggplot(aes(x=new_time))+
-  geom_point(aes(y=temp_setpoint), color="blue", size=.5)+
-  geom_point(aes(y=diff_setpoint), color="red", size=.5)+
-  facet_wrap(~LOTNO)
-  
-
-
-ggplotly(t)
-  dplyr::mutate(diff_setpoint = diff(temp_setpoint),
-                diff_kilntemp = diff(kilntemp))
-
   ggplot(aes(x=new_time, y = kilntemp, color = LOTNO))+
-  geom_point()
-  
+  # ggplot(aes(x=new_time, y = temp_setpoint, color = LOTNO))+
+  # ggplot(aes(x=new_time, y = kilnpress, color = LOTNO))+
+  geom_point(size = .8)+
+  # geom_vline(aes(xintercept = splice_end))+
+  theme(legend.position = "none")+
+  facet_wrap(~LOTNO, scales = "free")
+
+ggplotly(t)
 
 
-
-
-
-
-
-
-test %>% 
-  dplyr::filter(LOTNO %in% levels(test$LOTNO)[7]) %>%
-  # mutate(new_date = as.Date(date)) %>% 
-  # mutate(new_date = as.Date(date, format = "%m/%d/%Y")) %>% 
-  mutate(new_date_head = as.Date(date)) %>%
-  mutate(new_date_tail = as.Date(date, format = "%m/%d/%Y")) %>%
-  dplyr::select(date, new_date_head, new_date_tail) %>% 
-  mutate(new_date = as.Date((ifelse(is.na(new_date_head), as.character(new_date_tail), as.character(new_date_head)))))
-  
- 
-ldply(unlist(files), get_files)
-
-  mutate(lotno = lotno) %>% 
-  as_tibble()
-
-
-
-
-
-
-# -------------------------------------------------------------------------
-
-
-
-
-
-mylist
-
-
-
-
-list.dirs(kilns_dir, recursive = FALSE)
-
-
-# A kiln dir
-kiln_data_dirs[1]
-
-# A kiln sub-dirs
-list.dirs(kiln_data_dirs[1])[2:length(list.dirs(kiln_data_dirs[1]))]
-
-# A kiln sub dir CSVs
-list.files(list.dirs(kiln_data_dirs[1])[2:length(list.dirs(kiln_data_dirs[1]))][1], pattern = "CSV")
-
-# csv to df
-
-dir <- list.dirs(kiln_data_dirs[1])[2:length(list.dirs(kiln_data_dirs[1]))][1]
-files <- list.files(list.dirs(kiln_data_dirs[1])[2:length(list.dirs(kiln_data_dirs[1]))][1], pattern = "CSV")
-
+# kiln C ------------------------------------------------------------------
 mylist <- list()
+kilns_C <- tibble()
 
-for(file in files){
-  mylist <- append(mylist, paste0(dir,"/",file))
+for(kiln in kilns[3]){
+  # loop thru each primrary kiln folder
+  kiln_name <- str_split(str_split(kiln, "/")[[1]][length(str_split(kiln, "/")[[1]])], "-")[[1]][1]
+    
+  for(sub_dir in list.dirs(kiln)[2:length(list.dirs(kiln))]){
+    # loop thru each lot in kiln folder
+    lotno <- str_split(sub_dir, "/")[[1]][length(str_split(sub_dir, "/")[[1]])]
+    lotno <- paste0(lotno, kiln_name)
+    
+    # print(paste0(sub_dir, "/", list.files(sub_dir, pattern = "1.CSV")))
+    # print("--------------------")
+    files1 <- list(paste0(sub_dir, "/", list.files(sub_dir, pattern = "1.CSV")))
+    files2 <- list(paste0(sub_dir, "/", list.files(sub_dir, pattern = "2.CSV")))
+
+    # paste lotno, convert dates
+    df1 <- ldply(unlist(files1), get_files) %>%
+      mutate(LOTNO = lotno) %>%
+      mutate(new_date_B = as.Date(date, format = "%m/%d/%Y")) %>%
+      mutate(new_date_A = as.Date(date, format = "%Y-%m-%d")) %>%
+      mutate(date = (ifelse(is.na(new_date_B), as.character(new_date_A), as.character(new_date_B)))) %>%
+      dplyr::select(-c(new_date_B, new_date_A)) %>% 
+      as_tibble()
+    
+    df2 <- ldply(unlist(files2), get_files) %>%
+      mutate(LOTNO = lotno) %>%
+      mutate(new_date_B = as.Date(date, format = "%m/%d/%Y")) %>%
+      mutate(new_date_A = as.Date(date, format = "%Y-%m-%d")) %>%
+      mutate(date = (ifelse(is.na(new_date_B), as.character(new_date_A), as.character(new_date_B)))) %>%
+      dplyr::select(-c(new_date_B, new_date_A)) %>% 
+      as_tibble
+    
+    df <- left_join(df1,df2,by=c("LOTNO", "date", "time"))
+    
+    df <- df %>% 
+      mutate(diff_setpoint = temp_sp - lag(temp_sp),
+             max_diff_setpoint = max(diff_setpoint, na.rm=TRUE))
+    df <- df %>% 
+      mutate(diff_setpoint = ifelse(is.na(diff_setpoint), 0, diff_setpoint))
+    
+    # find splice beginning
+    splice_beginning <- which(df$diff_setpoint > 20)[1]
+    df <- df[splice_beginning:nrow(df),]
+      
+    df <- df %>% 
+      mutate(new_time = seq(1:nrow(df)),
+             avg_kiln_temp = rowMeans(select(., t_c_51a,t_c_51b,t_c_52a,t_c_52b)),
+             start_temp = avg_kiln_temp[1],
+             max_temp = max(avg_kiln_temp),
+             temp_slope = avg_kiln_temp - lag(avg_kiln_temp),
+             diff_start = start_temp - avg_kiln_temp)
+    
+    # find splice end
+    max_temp_index <- which(df$avg_kiln_temp == df$max_temp)[[1]]
+
+    temp_list <- list()
+    for(i in seq(max_temp_index, nrow(df))){
+
+      slope      <- df$temp_slope[i]
+      diff_start <- df$diff_start[i]
+
+      if( (slope > -10) & (diff_start > -40) ){
+        temp_list <- append(temp_list, i)
+      }
+    }
+    
+    if(lotno == "090919C"){ splice_end = 3793 }
+    else{ splice_end <- temp_list[[1]] }
+    
+    df <- df[1:splice_end,]
+    
+    # join lot df to primary df
+    
+    kilns_C <- bind_rows(kilns_C, df)
+  }
+  
+}
+kilns_C <- kilns_C %>% 
+  # dplyr::select(-c(diff_setpoint, max_diff_setpoint)) %>% 
+  mutate(LOTNO = as.factor(LOTNO))
+
+levels(kilns_C$LOTNO)
+
+# view many plots
+kilns_C %>% 
+  # dplyr::filter(LOTNO %in% levels(kilns_C$LOTNO)) %>%
+  # dplyr::filter(LOTNO %in% levels(kilns_C$LOTNO)[1]) %>%
+  # dplyr::filter(LOTNO %in% levels(kilns_C$LOTNO)[101:120]) %>%
+  # dplyr::filter(LOTNO %in% levels(kilns_C$LOTNO)[1:25]) %>%
+  # dplyr::filter(LOTNO %in% levels(kilns_C$LOTNO)[26:50]) %>%
+  # dplyr::filter(LOTNO %in% levels(kilns_C$LOTNO)[51:55]) %>%
+  group_by(LOTNO) %>% 
+  # ggplot(aes(x=new_time, y = temp_sp, color = LOTNO))+
+  ggplot(aes(x=new_time, y = avg_kiln_temp, color = LOTNO))+
+  # ggplot(aes(x=new_time, y = temp_setpoint, color = LOTNO))+
+  # ggplot(aes(x=new_time, y = kilnpress, color = LOTNO))+
+  geom_point(size = .8)+
+  # geom_point(aes(y = diff_setpoint), color='blue', size=.5)+
+  # geom_vline(aes(xintercept = 856))+
+  theme(legend.position = "none")+
+  facet_wrap(~LOTNO, scales = "free")
+
+# play df
+t <- kilns_C %>% 
+  dplyr::filter(LOTNO == levels(kilns_C$LOTNO)[10])
+
+# t <- df
+# index of max temp
+max_temp_index <- which(t$avg_kiln_temp == t$max_temp)[[1]]
+
+# t <- t %>% 
+#   mutate(diff_start = start_temp - avg_kiln_temp)
+# 
+tt <- t %>% 
+  ggplot(aes(x=new_time, y=avg_kiln_temp))+
+  geom_line(color="black")+
+  geom_line(aes(y=diff_start), color="red")+
+  geom_line(aes(y=temp_slope), color="blue")
+ggplotly(tt)
+
+temp_list <- list()
+for(i in seq(max_temp_index, nrow(t))){
+   # print(t$avg_kiln_temp[i])
+  slope      <- t$temp_slope[i]
+  diff_start <- t$diff_start[i]
+  
+  if( (slope > -10) & (diff_start > -40) ){
+    temp_list <- append(temp_list, i)
+  }
 }
 
-df <- ldply(mylist, get_files) %>% 
-  as_tibble()
+t %>% 
+  mutate(find_end_temp2 = avg_kiln_temp - lag(avg_kiln_temp, n=2)) %>% 
+  ggplot(aes(x=new_time)) +
+  geom_point(aes(y=avg_kiln_temp))+
+  geom_line(aes(y=diff_start), color='blue')+
+  geom_line(aes(y=find_end_temp2*10),color='red')+
+  # geom_line(aes(y=find_end_temp*10),color='red')+
+  geom_hline(aes(yintercept = start_temp)) +
+  geom_hline(aes(yintercept = 0))+
+  geom_vline(aes(xintercept = temp_list[[1]]))
+ggplotly(tt)
 
-# try to get lotno
-# list.dirs(kiln_data_dirs[1])[2:length(list.dirs(kiln_data_dirs[1]))][1]
-a <- list.files(kiln_data_dirs[1])[1]
-a <- str_split(a, " ")[[1]][2]
 
-b <- str_split(kiln_data_dirs[1], "/")[[1]][length(str_split(kiln_data_dirs[1], "/")[[1]])]
-b <- str_split(b, "-")[[1]][1]
 
-lotno <- paste0(a,b)
 
-df <- df %>% 
-  mutate(LOTNO = lotno)
-  
+
