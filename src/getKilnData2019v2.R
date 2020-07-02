@@ -28,16 +28,16 @@ for(kiln in kilns[1:2]){
     
     # paste lotno, convert dates
     df <- ldply(unlist(files), get_files) %>% 
-      mutate(LOTNO = lotno) %>% 
-      mutate(new_date_B = as.Date(date, format = "%m/%d/%Y")) %>%
-      mutate(new_date_A = as.Date(date, format = "%Y-%m-%d")) %>% 
-      mutate(date = (ifelse(is.na(new_date_B), as.character(new_date_A), as.character(new_date_B)))) %>% 
+      plyr::mutate(LOTNO = lotno) %>% 
+      plyr::mutate(new_date_B = as.Date(date, format = "%m/%d/%Y")) %>%
+      plyr::mutate(new_date_A = as.Date(date, format = "%Y-%m-%d")) %>% 
+      plyr::mutate(date = (ifelse(is.na(new_date_B), as.character(new_date_A), as.character(new_date_B)))) %>% 
       dplyr::select(-c(new_date_B, new_date_A))
     
     # get setpoint diffs, store max
     df <- df %>% 
       arrange(date, time) %>%
-      mutate(
+      plyr::mutate(
         diff_setpoint = temp_setpoint - lag(temp_setpoint),
         max_diff_setpoint = max(diff_setpoint, na.rm = TRUE)
       )
@@ -52,7 +52,7 @@ for(kiln in kilns[1:2]){
 
     # find second splice location based on reaching beginning temp
     df <- df %>% 
-      mutate(start_temp = kilntemp[1],
+      plyr::mutate(start_temp = kilntemp[1],
              max_temp = max(kilntemp, na.rm=TRUE),
              find_end_temp = abs(kilntemp - start_temp))
     
@@ -70,8 +70,8 @@ for(kiln in kilns[1:2]){
 
     # produce new time axis
     df <- df %>% 
-      mutate(new_time = seq(1:nrow(df))) %>% 
-      mutate(kiln = kiln_name) %>% 
+      plyr::mutate(new_time = seq(1:nrow(df))) %>% 
+      plyr::mutate(kiln = kiln_name) %>% 
       as_tibble()
     
     # bind individual lot df to parent df
@@ -84,7 +84,7 @@ for(kiln in kilns[1:2]){
 kilns_AB <- kilns_AB %>% 
   dplyr::select(c(LOTNO,kiln,date,time,new_time,everything())) %>% 
   dplyr::select(-c(diff_setpoint, max_diff_setpoint, start_temp, find_end_temp)) %>%
-  mutate(LOTNO = as.factor(LOTNO))
+  plyr::mutate(LOTNO = as.factor(LOTNO))
 # names(kilns_AB)
 
 # testing
@@ -130,35 +130,35 @@ for(kiln in kilns[c(3)]){
 
     # paste lotno, convert dates
     df1 <- ldply(unlist(files1), get_files) %>%
-      mutate(LOTNO = lotno) %>%
-      mutate(new_date_B = as.Date(date, format = "%m/%d/%Y")) %>%
-      mutate(new_date_A = as.Date(date, format = "%Y-%m-%d")) %>%
-      mutate(date = (ifelse(is.na(new_date_B), as.character(new_date_A), as.character(new_date_B)))) %>%
+      plyr::mutate(LOTNO = lotno) %>%
+      plyr::mutate(new_date_B = as.Date(date, format = "%m/%d/%Y")) %>%
+      plyr::mutate(new_date_A = as.Date(date, format = "%Y-%m-%d")) %>%
+      plyr::mutate(date = (ifelse(is.na(new_date_B), as.character(new_date_A), as.character(new_date_B)))) %>%
       dplyr::select(-c(new_date_B, new_date_A)) %>% 
       as_tibble()
     
     df2 <- ldply(unlist(files2), get_files) %>%
-      mutate(LOTNO = lotno) %>%
-      mutate(new_date_B = as.Date(date, format = "%m/%d/%Y")) %>%
-      mutate(new_date_A = as.Date(date, format = "%Y-%m-%d")) %>%
-      mutate(date = (ifelse(is.na(new_date_B), as.character(new_date_A), as.character(new_date_B)))) %>%
+      plyr::mutate(LOTNO = lotno) %>%
+      plyr::mutate(new_date_B = as.Date(date, format = "%m/%d/%Y")) %>%
+      plyr::mutate(new_date_A = as.Date(date, format = "%Y-%m-%d")) %>%
+      plyr::mutate(date = (ifelse(is.na(new_date_B), as.character(new_date_A), as.character(new_date_B)))) %>%
       dplyr::select(-c(new_date_B, new_date_A)) %>% 
       as_tibble
     
     df <- left_join(df1,df2,by=c("LOTNO", "date", "time"))
     
     df <- df %>% 
-      mutate(diff_setpoint = temp_sp - lag(temp_sp),
+      plyr::mutate(diff_setpoint = temp_sp - lag(temp_sp),
              max_diff_setpoint = max(diff_setpoint, na.rm=TRUE))
     df <- df %>% 
-      mutate(diff_setpoint = ifelse(is.na(diff_setpoint), 0, diff_setpoint))
+      plyr::mutate(diff_setpoint = ifelse(is.na(diff_setpoint), 0, diff_setpoint))
     
     # find splice beginning
     splice_beginning <- which(df$diff_setpoint > 20)[1]
     df <- df[splice_beginning:nrow(df),]
       
     df <- df %>% 
-      mutate(new_time = seq(1:nrow(df)),
+      plyr::mutate(new_time = seq(1:nrow(df)),
              avg_kiln_temp = rowMeans(select(., t_c_51a,t_c_51b,t_c_52a,t_c_52b)),
              start_temp = avg_kiln_temp[1],
              max_temp = max(avg_kiln_temp),
@@ -195,7 +195,7 @@ for(kiln in kilns[c(3)]){
 kilns_C <- kilns_C %>% 
   dplyr::select(c(LOTNO,kiln,date,time,new_time,everything())) %>% 
   dplyr::select(-c(start_temp,temp_slope,diff_start,max_diff_setpoint,diff_setpoint)) %>% 
-  mutate(LOTNO = as.factor(LOTNO))
+  plyr::mutate(LOTNO = as.factor(LOTNO))
 # names(kilns_C)
 
 # levels(kilns_C$LOTNO)
@@ -236,25 +236,25 @@ for(kiln in kilns[c(4)]){
     
     # paste lotno, convert dates
     df1 <- ldply(unlist(files1), get_files) %>%
-      mutate(LOTNO = lotno) %>%
-      mutate(new_date_B = as.Date(date, format = "%m/%d/%Y")) %>%
-      mutate(new_date_A = as.Date(date, format = "%Y-%m-%d")) %>%
-      mutate(date = (ifelse(is.na(new_date_B), as.character(new_date_A), as.character(new_date_B)))) %>%
+      plyr::mutate(LOTNO = lotno) %>%
+      plyr::mutate(new_date_B = as.Date(date, format = "%m/%d/%Y")) %>%
+      plyr::mutate(new_date_A = as.Date(date, format = "%Y-%m-%d")) %>%
+      plyr::mutate(date = (ifelse(is.na(new_date_B), as.character(new_date_A), as.character(new_date_B)))) %>%
       dplyr::select(-c(new_date_B, new_date_A)) %>% 
       as_tibble()
     
     df2 <- ldply(unlist(files2), get_files) %>%
-      mutate(LOTNO = lotno) %>%
-      mutate(new_date_B = as.Date(date, format = "%m/%d/%Y")) %>%
-      mutate(new_date_A = as.Date(date, format = "%Y-%m-%d")) %>%
-      mutate(date = (ifelse(is.na(new_date_B), as.character(new_date_A), as.character(new_date_B)))) %>%
+      plyr::mutate(LOTNO = lotno) %>%
+      plyr::mutate(new_date_B = as.Date(date, format = "%m/%d/%Y")) %>%
+      plyr::mutate(new_date_A = as.Date(date, format = "%Y-%m-%d")) %>%
+      plyr::mutate(date = (ifelse(is.na(new_date_B), as.character(new_date_A), as.character(new_date_B)))) %>%
       dplyr::select(-c(new_date_B, new_date_A)) %>% 
       as_tibble
     
     df <- left_join(df1,df2,by=c("LOTNO", "date", "time"))
     
     df <- df %>%
-      mutate(new_time = seq(1:nrow(df)),
+      plyr::mutate(new_time = seq(1:nrow(df)),
              avg_kiln_temp = rowMeans(select(., bot_t_c_1 ,bot_t_c_2 ,top_t_c_3 ,top_t_c_4)),
              start_temp = avg_kiln_temp[1],
              diff_setpoint = setpoint - lag(setpoint),
@@ -298,7 +298,7 @@ for(kiln in kilns[c(4)]){
 kilns_D <- kilns_D %>% 
   dplyr::select(c(LOTNO,kiln,date,time,new_time,everything())) %>% 
   dplyr::select(-c(start_temp,diff_setpoint,max_diff_setpoint,temp_slope,diff_start)) %>% 
-  mutate(LOTNO = as.factor(LOTNO))
+  plyr::mutate(LOTNO = as.factor(LOTNO))
 # names(kilns_D)
 
 # kilns_D %>% 
@@ -333,25 +333,25 @@ for(kiln in kilns[c(5)]){
     
     # paste lotno, convert dates
     df1 <- ldply(unlist(files1), get_files) %>%
-      mutate(LOTNO = lotno) %>%
-      mutate(new_date_B = as.Date(date, format = "%m/%d/%Y")) %>%
-      mutate(new_date_A = as.Date(date, format = "%Y-%m-%d")) %>%
-      mutate(date = (ifelse(is.na(new_date_B), as.character(new_date_A), as.character(new_date_B)))) %>%
+      plyr::mutate(LOTNO = lotno) %>%
+      plyr::mutate(new_date_B = as.Date(date, format = "%m/%d/%Y")) %>%
+      plyr::mutate(new_date_A = as.Date(date, format = "%Y-%m-%d")) %>%
+      plyr::mutate(date = (ifelse(is.na(new_date_B), as.character(new_date_A), as.character(new_date_B)))) %>%
       dplyr::select(-c(new_date_B, new_date_A)) %>% 
       as_tibble()
     
     df2 <- ldply(unlist(files2), get_files) %>%
-      mutate(LOTNO = lotno) %>%
-      mutate(new_date_B = as.Date(date, format = "%m/%d/%Y")) %>%
-      mutate(new_date_A = as.Date(date, format = "%Y-%m-%d")) %>%
-      mutate(date = (ifelse(is.na(new_date_B), as.character(new_date_A), as.character(new_date_B)))) %>%
+      plyr::mutate(LOTNO = lotno) %>%
+      plyr::mutate(new_date_B = as.Date(date, format = "%m/%d/%Y")) %>%
+      plyr::mutate(new_date_A = as.Date(date, format = "%Y-%m-%d")) %>%
+      plyr::mutate(date = (ifelse(is.na(new_date_B), as.character(new_date_A), as.character(new_date_B)))) %>%
       dplyr::select(-c(new_date_B, new_date_A)) %>% 
       as_tibble
     
     df <- left_join(df1,df2,by=c("LOTNO", "date", "time"))
     
     df <- df %>%
-      mutate(new_time = seq(1:nrow(df)),
+      plyr::mutate(new_time = seq(1:nrow(df)),
              avg_kiln_temp = rowMeans(select(., bot_t_c_1 ,bot_t_c_2 ,top_t_c_3 ,top_t_c_4)),
              start_temp = avg_kiln_temp[1],
              diff_setpoint = setpoint - lag(setpoint),
@@ -399,7 +399,7 @@ for(kiln in kilns[c(5)]){
 kilns_E <- kilns_E %>%
   dplyr::select(c(LOTNO,kiln,date,time,new_time,everything())) %>%
   dplyr::select(-c(start_temp,diff_setpoint,max_diff_setpoint,temp_slope,diff_start)) %>%
-  mutate(LOTNO = as.factor(LOTNO))
+  plyr::mutate(LOTNO = as.factor(LOTNO))
 # # names(kilns_E)
 # 
 # kilns_E %>%
@@ -439,75 +439,70 @@ for(kiln in kilns[c(6)]){
     files2 <- list(paste0(sub_dir, "/", list.files(sub_dir, pattern = "2.CSV")))
     
     # paste lotno, convert dates
-    df1 <- ldply(unlist(files1), get_files) %>%
-      mutate(LOTNO = lotno) %>%
-      mutate(new_date_B = as.Date(date, format = "%m/%d/%Y")) %>%
-      mutate(new_date_A = as.Date(date, format = "%Y-%m-%d")) %>%
-      mutate(date = (ifelse(is.na(new_date_B), as.character(new_date_A), as.character(new_date_B)))) %>%
-      dplyr::select(-c(new_date_B, new_date_A)) %>% 
-      as_tibble()
+    df1 <- get_data(file = files1)
+    df2 <- get_data(file = files2)
     
-    df2 <- ldply(unlist(files2), get_files) %>%
-      mutate(LOTNO = lotno) %>%
-      mutate(new_date_B = as.Date(date, format = "%m/%d/%Y")) %>%
-      mutate(new_date_A = as.Date(date, format = "%Y-%m-%d")) %>%
-      mutate(date = (ifelse(is.na(new_date_B), as.character(new_date_A), as.character(new_date_B)))) %>%
-      dplyr::select(-c(new_date_B, new_date_A)) %>% 
-      as_tibble
-    
-    df <- left_join(df1,df2,by=c("LOTNO", "date", "time"))
+    df <- left_join(df1, df2, by=c("LOTNO", "date", "time"))
     
     df <- df %>%
-      mutate(new_time = seq(1:nrow(df)),
-             avg_kiln_temp = rowMeans(select(., bot_t_c_1 ,bot_t_c_2 ,top_t_c_3 ,top_t_c_4)),
-             start_temp = avg_kiln_temp[1],
-             kiln = kiln_name,
-             
-             diff_setpoint = setpoint - lag(setpoint),
-             max_diff_setpoint = max(diff_setpoint, na.rm=TRUE),
-             max_temp = max(avg_kiln_temp),
-             
-             temp_slope = avg_kiln_temp - lag(avg_kiln_temp),
-             diff_start = start_temp - avg_kiln_temp,
-      )
+      plyr::mutate(
+        time = seq(1:nrow(df)),
+        avg_top_kiln_temp = rowMeans(select(., top_t_c_3, top_t_c_4)),
+        avg_bot_kiln_temp = rowMeans(select(., bot_t_c_1, bot_t_c_2)),
+        avg_kiln_temp     = rowMeans(select(., bot_t_c_1, bot_t_c_2, top_t_c_3, top_t_c_4))
+      ) 
     
-    # find splice beginning
-    if( lotno == "081619F") { splice_beginning = 525}
-    else{splice_beginning <- which(df$diff_setpoint == df$max_diff_setpoint)[1]}
-
-    df <- df[splice_beginning:nrow(df),]
+    # find beginning splice
+    if     ( lotno == "empty" ){ df <- df[1:nrow(df),] }
+    else if( lotno == "empty" ){ df <- df[1:nrow(df),] }
+    else                       { df <- df[index_splice_beginning_F(df):nrow(df),] }
+    
+    # fix time
+    df <- df %>% 
+      plyr::mutate(time = seq(1:nrow(df)))
+    
+    # find end splice
+    df <- df[1:index_splice_end(df),]
     
     # bind lot data to collective data
     kilns_F <- bind_rows(kilns_F, df)
   }
+  
+  kilns_F <- kilns_F %>%
+    # dplyr::select(c(LOTNO,kiln,date,time,new_time,everything())) %>%
+    # dplyr::select(-c(start_temp,diff_setpoint,max_diff_setpoint,temp_slope,diff_start)) %>%
+    plyr::mutate(LOTNO = as.factor(LOTNO))
+  
 }
 
 # names(kilns_F)
 kilns_F <- kilns_F %>%
-  dplyr::select(c(LOTNO,kiln,date,time,new_time,everything())) %>%
-  dplyr::select(-c(start_temp,diff_setpoint,max_diff_setpoint,temp_slope,diff_start)) %>%
-  mutate(LOTNO = as.factor(LOTNO))
+  # dplyr::select(c(LOTNO,kiln,date,time,new_time,everything())) %>%
+  # dplyr::select(-c(start_temp,diff_setpoint,max_diff_setpoint,temp_slope,diff_start)) %>%
+  plyr::mutate(LOTNO = as.factor(LOTNO))
 # # names(kilns_F)
 
-# kilns_F %>%
-#   # dplyr::filter(LOTNO %in% levels(kilns_F$LOTNO)) %>%
-#   # dplyr::filter(LOTNO %in% levels(kilns_F$LOTNO)[31:41]) %>%
-#   group_by(LOTNO) %>%
-#   # ggplot(aes(x=new_time, y = setpoint, color=LOTNO))+
-#   ggplot(aes(x=new_time, y = avg_kiln_temp, color=LOTNO))+
-#   geom_point(size = .8)+
-#   # geom_line(aes(y=temp_slope),color='red')+
-#   # geom_line(aes(y=diff_start),color='blue')+
-#   theme(legend.position = "none")+
-#   facet_wrap(~LOTNO)
-# ggplotly(t)
+kilns_F %>%
+  # dplyr::filter(LOTNO %in% levels(kilns_F$LOTNO)) %>%
+  dplyr::filter(LOTNO %in% levels(kilns_F$LOTNO)[1:25]) %>%
+  # dplyr::filter(LOTNO %in% levels(kilns_F$LOTNO)[c(3,5,6,7,22,51)]) %>%
+  group_by(LOTNO) %>%
+  # ggplot(aes(x=new_time, y = setpoint, color=LOTNO))+
+  ggplot(aes(x=time, y = avg_kiln_temp, color=LOTNO))+
+  geom_point(size = .8)+
+  geom_line(aes(y=setpoint),color = 'black')+
+  # geom_line(aes(y=temp_slope),color='red')+
+  # geom_line(aes(y=diff_start),color='blue')+
+  theme(legend.position = "none")+
+  facet_wrap(~LOTNO,scales="free")
+ggplotly(t)
 
 # KILNS G -----------------------------------------------------------------
 
 kilns_G <- tibble()
 
 for(kiln in kilns[c(7)]){
-  # loop thru each primrary kiln folder
+  # loop thru each primary kiln folder
   kiln_name <- str_split(str_split(kiln, "/")[[1]][length(str_split(kiln, "/")[[1]])], "-")[[1]][1]
   
   for(sub_dir in list.dirs(kiln)[2:length(list.dirs(kiln))]){
@@ -523,131 +518,78 @@ for(kiln in kilns[c(7)]){
     files4 <- list(paste0(sub_dir, "/", list.files(sub_dir, pattern = "4.CSV")))
     
     # paste lotno, convert dates
-    df1 <- ldply(unlist(files1), get_files) %>%
-      mutate(LOTNO = lotno) %>%
-      mutate(new_date_B = as.Date(date, format = "%m/%d/%Y")) %>%
-      mutate(new_date_A = as.Date(date, format = "%Y-%m-%d")) %>%
-      mutate(date = (ifelse(is.na(new_date_B), as.character(new_date_A), as.character(new_date_B)))) %>%
-      dplyr::select(-c(new_date_B, new_date_A)) %>% 
-      as_tibble()
+    df1 <- get_data(file = files1)
+    df2 <- get_data(file = files2)
+    df3 <- get_data(file = files3)
+    df4 <- get_data(file = files4)
     
-    df2 <- ldply(unlist(files2), get_files) %>%
-      mutate(LOTNO = lotno) %>%
-      mutate(new_date_B = as.Date(date, format = "%m/%d/%Y")) %>%
-      mutate(new_date_A = as.Date(date, format = "%Y-%m-%d")) %>%
-      mutate(date = (ifelse(is.na(new_date_B), as.character(new_date_A), as.character(new_date_B)))) %>%
-      dplyr::select(-c(new_date_B, new_date_A)) %>% 
-      as_tibble
+    df <- left_join(df1, df2, by=c("LOTNO", "date", "time"))
+    df <- left_join(df,  df3, by=c("LOTNO", "date", "time"))
+    df <- left_join(df,  df4, by=c("LOTNO", "date", "time"))
     
-    df3 <- ldply(unlist(files3), get_files) %>%
-      mutate(LOTNO = lotno) %>%
-      mutate(new_date_B = as.Date(date, format = "%m/%d/%Y")) %>%
-      mutate(new_date_A = as.Date(date, format = "%Y-%m-%d")) %>%
-      mutate(date = (ifelse(is.na(new_date_B), as.character(new_date_A), as.character(new_date_B)))) %>%
-      dplyr::select(-c(new_date_B, new_date_A)) %>% 
-      as_tibble
-    
-    df4 <- ldply(unlist(files4), get_files) %>%
-      mutate(LOTNO = lotno) %>%
-      mutate(new_date_B = as.Date(date, format = "%m/%d/%Y")) %>%
-      mutate(new_date_A = as.Date(date, format = "%Y-%m-%d")) %>%
-      mutate(date = (ifelse(is.na(new_date_B), as.character(new_date_A), as.character(new_date_B)))) %>%
-      dplyr::select(-c(new_date_B, new_date_A)) %>% 
-      as_tibble
-    
-    df <- left_join(df1,df2,by=c("LOTNO", "date", "time"))
-    df <- left_join(df,df3,by=c("LOTNO", "date", "time"))
-    df <- left_join(df,df4,by=c("LOTNO", "date", "time"))
-    
+    # summarise column values
     df <- df %>%
-      mutate(
+      plyr::mutate(
         time = seq(1:nrow(df)),
         avg_top_kiln_temp = rowMeans(select(., tc_t1,tc_t2,tc_t3,tc_t4)),
         avg_bot_kiln_temp = rowMeans(select(., tc_b1,tc_b2,tc_b3,tc_b4)),
         avg_kiln_temp     = rowMeans(select(., tc_t1,tc_t2,tc_t3,tc_t4,tc_b1,tc_b2,tc_b3,tc_b4)),
-        setpoint          = rowMeans(select(., setpoint.x, setpoint.y))
+        setpoint          = rowMeans(select(., tmprsp, bzone_sp))
         ) %>% 
       # fix for lotno 120419G bottom TC's failing 
-      mutate(avg_kiln_temp = ifelse(is.na(avg_bot_kiln_temp), avg_top_kiln_temp, avg_kiln_temp))
-             # max_temp = max(avg_kiln_temp),
-             # temp_slope = avg_kiln_temp - lag(avg_kiln_temp),
-             # diff_start = start_temp - avg_kiln_temp
+      plyr::mutate(avg_kiln_temp = ifelse(is.na(avg_bot_kiln_temp), avg_top_kiln_temp, avg_kiln_temp))
 
-      
-            
-
-    # # find splice beginning
-    if( lotno == "012219G"){ splice_beginning = 1148 }
-    else if( lotno == "031919G"){splice_beginning = 1320 }
-    else if( lotno == "050419G"){splice_beginning = 97 }
-    else if( lotno == "051419G"){splice_beginning = 833 }
-    else if( lotno == "052919G"){splice_beginning = 36 }
-    else if( lotno == "062219G"){splice_beginning = 78 }
-    else if( lotno == "072319G"){splice_beginning = 1340 }
-    else if( lotno == "091819G"){splice_beginning = 21 }
-    else if( lotno == "092119G"){splice_beginning = 726 }
-    else if( lotno == "120419G"){splice_beginning = 186 }
-    else{ splice_beginning <- which(df$diff_setpoint == df$max_diff_setpoint)[1] }
-
-    df <- df[splice_beginning:nrow(df),]
+    # find beginning splice
+    if     ( lotno == "empty" ){ df <- df[1:nrow(df),] }
+    else if( lotno == "empty" ){ df <- df[1:nrow(df),] }
+    else                       { df <- df[index_splice_beginning(df):nrow(df),] }
     
+    # fix time
     df <- df %>% 
-      mutate(new_time = seq(1:nrow(df)))
+      plyr::mutate(time = seq(1:nrow(df)))
     
-    # find splice end
-    max_temp_index <- which(df$avg_kiln_temp == df$max_temp)[[1]]
-
-    temp_list <- list()
-    for(i in seq(max_temp_index, nrow(df))){
-      slope      <- df$temp_slope[i]
-      diff_start <- df$diff_start[i]
-
-      if(lotno %in% c("010319G","030219G","072719G","091419G","100519G","110119G","112919G","120719G")){
-        temp_list <- append(temp_list, nrow(df))
-      }
-      else if( (slope > -1) & (diff_start > -200) ){
-        temp_list <- append(temp_list, i)
-      }
-      # else{
-      #   temp_list <- append(temp_list, nrow(df))
-      # }
-      
-    }
-
-    if(lotno == "120419G"){spice_end <- 3500}
-    else{splice_end <- temp_list[[1]]}
-
-    df <- df[1:splice_end,]
-    
+    # find end splice
+    df <- df[1:index_splice_end(df),]
+            
     # bind lot data to collective data
     kilns_G <- bind_rows(kilns_G, df)
+    
   }
+  
+  kilns_G <- kilns_G %>%
+    # dplyr::select(c(LOTNO,kiln,date,time,new_time,everything())) %>%
+    # dplyr::select(-c(start_temp,diff_setpoint,max_diff_setpoint,temp_slope,diff_start)) %>%
+    plyr::mutate(LOTNO = as.factor(LOTNO))
+  
 }
 
 # names(kilns_G)
 kilns_G <- kilns_G %>%
-  dplyr::select(c(LOTNO,kiln,date,time,new_time,everything())) %>%
-  dplyr::select(-c(start_temp,diff_setpoint,max_diff_setpoint,temp_slope,diff_start)) %>%
-  mutate(LOTNO = as.factor(LOTNO))
+  # dplyr::select(c(LOTNO,kiln,date,time,new_time,everything())) %>%
+  # dplyr::select(-c(start_temp,diff_setpoint,max_diff_setpoint,temp_slope,diff_start)) %>%
+  plyr::mutate(LOTNO = as.factor(LOTNO))
 # # names(kilns_G)
 # 
-# levels(kilns_G$LOTNO)
-# kilns_G %>%
-#   # dplyr::filter(LOTNO %in% a) %>%
-#   # dplyr::filter(LOTNO %in% levels(kilns_G$LOTNO)) %>%
-#   # dplyr::filter(LOTNO %in% levels(kilns_G$LOTNO)[1:25]) %>%
-#   # dplyr::filter(LOTNO %in% levels(kilns_G$LOTNO)[1:50]) %>%
-#   # dplyr::filter(LOTNO %in% levels(kilns_G$LOTNO)[51:100]) %>%
-#   # dplyr::filter(LOTNO %in% levels(kilns_G$LOTNO)[101:150]) %>%
-#   group_by(LOTNO) %>%
-#   # ggplot(aes(x=new_time, y = setpoint, color=LOTNO))+
-#   ggplot(aes(x=new_time, y = avg_kiln_temp, color=LOTNO))+
-#   geom_point(size = .8)+
-#   # geom_line(aes(y=temp_slope),color='red')+
-#   # geom_line(aes(y=diff_start),color='blue')+
-#   # geom_line(aes(y=diff_setpoint),color='blue')+
-#   theme(legend.position = "none")+
-#   facet_wrap(~LOTNO,scales="free")
+levels(kilns_G$LOTNO)
+kilns_G %>%
+  # dplyr::filter(LOTNO %in% a) %>%
+  # dplyr::filter(LOTNO %in% levels(kilns_G$LOTNO)) %>%
+  # dplyr::filter(LOTNO %in% levels(kilns_G$LOTNO)[26:50]) %>%
+  # dplyr::filter(LOTNO %in% levels(kilns_G$LOTNO)[51:75]) %>%
+  dplyr::filter(LOTNO %in% levels(kilns_G$LOTNO)[76:100]) %>%
+  # dplyr::filter(LOTNO %in% levels(kilns_G$LOTNO)[1:50]) %>%
+  # dplyr::filter(LOTNO %in% levels(kilns_G$LOTNO)[51:100]) %>%
+  # dplyr::filter(LOTNO %in% levels(kilns_G$LOTNO)[101:150]) %>%
+  group_by(LOTNO) %>%
+  # ggplot(aes(x=new_time, y = setpoint, color=LOTNO))+
+  ggplot(aes(x=time, y = avg_kiln_temp, color=LOTNO))+
+  geom_line(aes(y=setpoint), color = 'black')+
+  geom_point(size = .8)+
+  # geom_line(aes(y=temp_slope),color='red')+
+  # geom_line(aes(y=diff_start),color='blue')+
+  # geom_line(aes(y=diff_setpoint),color='blue')+
+  theme(legend.position = "none")+
+  facet_wrap(~LOTNO)
 # ggplotly(t)
 
 # KILNS H -----------------------------------------------------------------
@@ -671,44 +613,18 @@ for(kiln in kilns[c(8)]){
     files4 <- list(paste0(sub_dir, "/", list.files(sub_dir, pattern = "6.CSV")))
     
     # paste lotno, convert dates
-    df1 <- ldply(unlist(files1), get_files) %>%
-      mutate(LOTNO = lotno) %>%
-      mutate(new_date_B = as.Date(date, format = "%m/%d/%Y")) %>%
-      mutate(new_date_A = as.Date(date, format = "%Y-%m-%d")) %>%
-      mutate(date = (ifelse(is.na(new_date_B), as.character(new_date_A), as.character(new_date_B)))) %>%
-      dplyr::select(-c(new_date_B, new_date_A)) %>% 
-      as_tibble()
-    
-    df2 <- ldply(unlist(files2), get_files) %>%
-      mutate(LOTNO = lotno) %>%
-      mutate(new_date_B = as.Date(date, format = "%m/%d/%Y")) %>%
-      mutate(new_date_A = as.Date(date, format = "%Y-%m-%d")) %>%
-      mutate(date = (ifelse(is.na(new_date_B), as.character(new_date_A), as.character(new_date_B)))) %>%
-      dplyr::select(-c(new_date_B, new_date_A)) %>% 
-      as_tibble
-    
-    df3 <- ldply(unlist(files3), get_files) %>%
-      mutate(LOTNO = lotno) %>%
-      mutate(new_date_B = as.Date(date, format = "%m/%d/%Y")) %>%
-      mutate(new_date_A = as.Date(date, format = "%Y-%m-%d")) %>%
-      mutate(date = (ifelse(is.na(new_date_B), as.character(new_date_A), as.character(new_date_B)))) %>%
-      dplyr::select(-c(new_date_B, new_date_A)) %>% 
-      as_tibble
-    
-    df4 <- ldply(unlist(files4), get_files) %>%
-      mutate(LOTNO = lotno) %>%
-      mutate(new_date_B = as.Date(date, format = "%m/%d/%Y")) %>%
-      mutate(new_date_A = as.Date(date, format = "%Y-%m-%d")) %>%
-      mutate(date = (ifelse(is.na(new_date_B), as.character(new_date_A), as.character(new_date_B)))) %>%
-      dplyr::select(-c(new_date_B, new_date_A)) %>% 
-      as_tibble
-    
-    df <- left_join(df1,df2,by=c("LOTNO", "date", "time"))
-    df <- left_join(df ,df3,by=c("LOTNO", "date", "time"))
-    df <- left_join(df ,df4,by=c("LOTNO", "date", "time"))
+    df1 <- get_data(file = files1)
+    df2 <- get_data(file = files2)
+    df3 <- get_data(file = files3)
+    df4 <- get_data(file = files4)
+
+    # join dfs
+    df <- left_join(df1, df2, by=c("LOTNO", "date", "time"))
+    df <- left_join(df , df3, by=c("LOTNO", "date", "time"))
+    df <- left_join(df , df4, by=c("LOTNO", "date", "time"))
     
     df <- df %>%
-      mutate(
+      plyr::mutate(
         time = seq(1:nrow(df)),
         avg_top_kiln_temp = rowMeans(select(., t_c_1t,t_c_2t,t_c_3t,t_c_4t)),
         avg_bot_kiln_temp = rowMeans(select(., t_c_1b,t_c_2b,t_c_3b,t_c_4b)),
@@ -717,7 +633,7 @@ for(kiln in kilns[c(8)]){
         kiln              = kiln_name
         ) %>% 
       # fix for lotno 020119H bottom TC's failing 
-      mutate(avg_kiln_temp = ifelse(is.na(avg_bot_kiln_temp), avg_top_kiln_temp, avg_kiln_temp))
+      plyr::mutate(avg_kiln_temp = ifelse(is.na(avg_bot_kiln_temp), avg_top_kiln_temp, avg_kiln_temp))
     
     # find beginning splice
     if     ( lotno == "102419H" ){ df <- df[1162:nrow(df),] }
@@ -726,7 +642,7 @@ for(kiln in kilns[c(8)]){
     
     # fix time
     df <- df %>% 
-      mutate(time = seq(1:nrow(df)))
+      plyr::mutate(time = seq(1:nrow(df)))
       
     # find end splice
     df <- df[1:index_splice_end(df),]
@@ -734,13 +650,18 @@ for(kiln in kilns[c(8)]){
     # bind lot data to collective data
     kilns_H <- bind_rows(kilns_H, df)
   }
+  
+  kilns_H <- kilns_H %>%
+    # dplyr::select(c(LOTNO,kiln,date,time,everything())) %>%
+    # dplyr::select(-c(start_temp,diff_setpoint,max_diff_setpoint,temp_slope,diff_start)) %>%
+    plyr::mutate(LOTNO = as.factor(LOTNO))
 }
 
 # names(kilns_H)
-kilns_H <- kilns_H %>%
+# kilns_H <- kilns_H %>%
   # dplyr::select(c(LOTNO,kiln,date,time,everything())) %>%
   # dplyr::select(-c(start_temp,diff_setpoint,max_diff_setpoint,temp_slope,diff_start)) %>%
-  mutate(LOTNO = as.factor(LOTNO))
+  # plyr::mutate(LOTNO = as.factor(LOTNO))
 # # names(kilns_H)
 # 
 levels(kilns_H$LOTNO)

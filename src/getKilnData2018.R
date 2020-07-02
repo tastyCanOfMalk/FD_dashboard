@@ -1,4 +1,4 @@
-source("src/cleanCombine.R")
+# source("src/cleanCombine.R")
 source("src/userFunctions.R")
 
 # library(plotly)
@@ -6,7 +6,7 @@ source("src/userFunctions.R")
 # library(dplyr)
 
 # KILNS A, B ---------------------------------------------------------------------
-kilns_dir <- "data/kiln/Kiln Run Data_2019"
+kilns_dir <- "data/kiln/Kiln Run Data_2018"
 kilns <- list.dirs(kilns_dir, recursive = FALSE)
 
 mylist <- list()
@@ -762,11 +762,16 @@ for(kiln in kilns[c(8)]){
     files1 <- list(paste0(sub_dir, "/", list.files(sub_dir, pattern = "1.CSV")))
     files2 <- list(paste0(sub_dir, "/", list.files(sub_dir, pattern = "2.CSV")))
     files3 <- list(paste0(sub_dir, "/", list.files(sub_dir, pattern = "3.CSV")))
-    files4 <- list(paste0(sub_dir, "/", list.files(sub_dir, pattern = "6.CSV")))
+    if(lotno == "122018H"){
+      files4 <- list(paste0(sub_dir, "/", list.files(sub_dir, pattern = "4.CSV")))
+    }
+    else{
+      files4 <- list(paste0(sub_dir, "/", list.files(sub_dir, pattern = "6.CSV")))
+    }
     
     # paste lotno, convert dates
     df1 <- ldply(unlist(files1), get_files) %>%
-      plyr::mutate(LOTNO = lotno) %>%
+      plyr::mutate(LOTNO = lotno) %>% 
       plyr::mutate(new_date_B = as.Date(date, format = "%m/%d/%Y")) %>%
       plyr::mutate(new_date_A = as.Date(date, format = "%Y-%m-%d")) %>%
       plyr::mutate(date = (ifelse(is.na(new_date_B), as.character(new_date_A), as.character(new_date_B)))) %>%
@@ -802,94 +807,93 @@ for(kiln in kilns[c(8)]){
     df <- left_join(df,df4,by=c("LOTNO", "date", "time"))
     
     df <- df %>%
-      mutate(new_time = seq(1:nrow(df)),
-             avg_top_kiln_temp = rowMeans(select(., t_c_1t,t_c_2t,t_c_3t,t_c_4t)),
+      plyr::mutate(time = seq(1:nrow(df)),
+             avg_top_kiln_temp = rowMeans(select(., t_c_1t.x, t_c_2t.x, t_c_3t.x, t_c_4t.x)),
              avg_bot_kiln_temp = rowMeans(select(., t_c_1b,t_c_2b,t_c_3b,t_c_4b)),
              avg_kiln_temp     = rowMeans(select(., t_c_1t,t_c_2t,t_c_3t,t_c_4t,t_c_1b,t_c_2b,t_c_3b,t_c_4b)),
              setpoint          = rowMeans(select(., setpoint.x, setpoint.y)),
-             start_temp = avg_kiln_temp[1],
-             diff_setpoint = setpoint.x - lag(setpoint.x),
-             kiln = kiln_name,
+             # diff_setpoint = setpoint - lag(setpoint),
+             kiln = kiln_name
 
-             max_diff_setpoint = max(diff_setpoint, na.rm=TRUE),
-             max_temp = max(avg_kiln_temp),
+             # max_diff_setpoint = max(diff_setpoint, na.rm=TRUE),
+             # max_temp = max(avg_kiln_temp),
 
-             temp_slope = avg_kiln_temp - lag(avg_kiln_temp),
-             diff_start = start_temp - avg_kiln_temp,
-             
-      ) %>% 
-      # fix for lotno 020119H bottom TC's failing 
-      mutate(avg_kiln_temp = ifelse(is.na(avg_bot_kiln_temp), avg_top_kiln_temp, avg_kiln_temp),
-             max_temp = max(avg_kiln_temp),
-             temp_slope = avg_kiln_temp - lag(avg_kiln_temp),
-             diff_start = start_temp - avg_kiln_temp
+             # temp_slope = avg_kiln_temp - lag(avg_kiln_temp),
+             # diff_start = start_temp - avg_kiln_temp,
+
       )
-    # find splice beginning
-    if     ( lotno == "011619H"){splice_beginning = 474 }
-    else if( lotno == "020119H"){splice_beginning = 1353 }
-    else if( lotno == "020519H"){splice_beginning = 1 }
-    else if( lotno == "020819H"){splice_beginning = 1362 }
-    else if( lotno == "021219H"){splice_beginning = 1248 }
-    else if( lotno == "022019H"){splice_beginning = 1893 }
-    else if( lotno == "022419H"){splice_beginning = 1085 }
-    else if( lotno == "022819H"){splice_beginning = 1053}
-    else if( lotno == "030819H"){splice_beginning = 1007}
-    else if( lotno == "031319H"){splice_beginning = 1 }
-    else if( lotno == "032519H"){splice_beginning = 1078 }
-    else if( lotno == "041919H"){splice_beginning = 1 }
-    else if( lotno == "042419H"){splice_beginning = 1 }
-    else if( lotno == "042819H"){splice_beginning = 1 }
-    else if( lotno == "050219H"){splice_beginning = 1 }
-    else if( lotno == "052419H"){splice_beginning = 1182 }
-    else if( lotno == "053119H"){splice_beginning = 1 }
-    else if( lotno == "060719H"){splice_beginning = 1 }
-    else if( lotno == "070419H"){splice_beginning = 1 }
-    else if( lotno == "081019H"){splice_beginning = 905 }
-    else if( lotno == "081419H"){splice_beginning = 949 }
-    else if( lotno == "081819H"){splice_beginning = 962 }
-    else if( lotno == "082219H"){splice_beginning = 1021 }
-    else if( lotno == "091019H"){splice_beginning = 1024 }
-    else if( lotno == "091419H"){splice_beginning = 1035 }
-    else if( lotno == "091819H"){splice_beginning = 1064 }
-    else if( lotno == "092219H"){splice_beginning = 1070 }
-    else if( lotno == "092619H"){splice_beginning = 1083 }
-    else if( lotno == "093019H"){splice_beginning = 1128 }
-    else if( lotno == "102419H"){splice_beginning = 1162 }
-    else if( lotno == "102819H"){splice_beginning = 1135 }
-    else if( lotno == "101219H"){splice_beginning = 976 }
-    else if( lotno == "120319H"){splice_beginning = 528 }
-    else{ splice_beginning <- which(df$diff_setpoint == df$max_diff_setpoint)[1] }
-    
-    if(is.na(splice_beginning)){splice_beginning = 1}
-    
-    df <- df[splice_beginning:nrow(df),]
-
-    df <- df %>%
-      mutate(new_time = seq(1:nrow(df)))
-    
-    # find splice end
-    max_temp_index <- which(df$avg_kiln_temp == df$max_temp)[[1]]
-    
-    temp_list <- list()
-    for(i in seq(max_temp_index, nrow(df))){
-      slope      <- df$temp_slope[i]
-      diff_start <- df$diff_start[i]
-      
-      if(lotno %in% c("010319G","030219G","072719G","091419G","100519G","110119G","112919G","120719G")){
-        temp_list <- append(temp_list, nrow(df))
-      }
-      else if( (slope > -1) & (diff_start > -200) ){
-        temp_list <- append(temp_list, i)
-      }
-      else{
-        temp_list <- append(temp_list, nrow(df))
-      }
-    }
-    
-    if(lotno == "120419G"){spice_end <- 3500}
-    else{splice_end <- temp_list[[1]]}
-    
-    df <- df[1:splice_end,]
+    #   # fix for lotno 020119H bottom TC's failing 
+    #   mutate(avg_kiln_temp = ifelse(is.na(avg_bot_kiln_temp), avg_top_kiln_temp, avg_kiln_temp),
+    #          max_temp = max(avg_kiln_temp),
+    #          temp_slope = avg_kiln_temp - lag(avg_kiln_temp),
+    #          diff_start = start_temp - avg_kiln_temp
+    #   )
+    # # find splice beginning
+    # if     ( lotno == "011619H"){splice_beginning = 474 }
+    # else if( lotno == "020119H"){splice_beginning = 1353 }
+    # else if( lotno == "020519H"){splice_beginning = 1 }
+    # else if( lotno == "020819H"){splice_beginning = 1362 }
+    # else if( lotno == "021219H"){splice_beginning = 1248 }
+    # else if( lotno == "022019H"){splice_beginning = 1893 }
+    # else if( lotno == "022419H"){splice_beginning = 1085 }
+    # else if( lotno == "022819H"){splice_beginning = 1053}
+    # else if( lotno == "030819H"){splice_beginning = 1007}
+    # else if( lotno == "031319H"){splice_beginning = 1 }
+    # else if( lotno == "032519H"){splice_beginning = 1078 }
+    # else if( lotno == "041919H"){splice_beginning = 1 }
+    # else if( lotno == "042419H"){splice_beginning = 1 }
+    # else if( lotno == "042819H"){splice_beginning = 1 }
+    # else if( lotno == "050219H"){splice_beginning = 1 }
+    # else if( lotno == "052419H"){splice_beginning = 1182 }
+    # else if( lotno == "053119H"){splice_beginning = 1 }
+    # else if( lotno == "060719H"){splice_beginning = 1 }
+    # else if( lotno == "070419H"){splice_beginning = 1 }
+    # else if( lotno == "081019H"){splice_beginning = 905 }
+    # else if( lotno == "081419H"){splice_beginning = 949 }
+    # else if( lotno == "081819H"){splice_beginning = 962 }
+    # else if( lotno == "082219H"){splice_beginning = 1021 }
+    # else if( lotno == "091019H"){splice_beginning = 1024 }
+    # else if( lotno == "091419H"){splice_beginning = 1035 }
+    # else if( lotno == "091819H"){splice_beginning = 1064 }
+    # else if( lotno == "092219H"){splice_beginning = 1070 }
+    # else if( lotno == "092619H"){splice_beginning = 1083 }
+    # else if( lotno == "093019H"){splice_beginning = 1128 }
+    # else if( lotno == "102419H"){splice_beginning = 1162 }
+    # else if( lotno == "102819H"){splice_beginning = 1135 }
+    # else if( lotno == "101219H"){splice_beginning = 976 }
+    # else if( lotno == "120319H"){splice_beginning = 528 }
+    # else{ splice_beginning <- which(df$diff_setpoint == df$max_diff_setpoint)[1] }
+    # 
+    # if(is.na(splice_beginning)){splice_beginning = 1}
+    # 
+    # df <- df[splice_beginning:nrow(df),]
+    # 
+    # df <- df %>%
+    #   mutate(new_time = seq(1:nrow(df)))
+    # 
+    # # find splice end
+    # max_temp_index <- which(df$avg_kiln_temp == df$max_temp)[[1]]
+    # 
+    # temp_list <- list()
+    # for(i in seq(max_temp_index, nrow(df))){
+    #   slope      <- df$temp_slope[i]
+    #   diff_start <- df$diff_start[i]
+    #   
+    #   if(lotno %in% c("010319G","030219G","072719G","091419G","100519G","110119G","112919G","120719G")){
+    #     temp_list <- append(temp_list, nrow(df))
+    #   }
+    #   else if( (slope > -1) & (diff_start > -200) ){
+    #     temp_list <- append(temp_list, i)
+    #   }
+    #   else{
+    #     temp_list <- append(temp_list, nrow(df))
+    #   }
+    # }
+    # 
+    # if(lotno == "120419G"){spice_end <- 3500}
+    # else{splice_end <- temp_list[[1]]}
+    # 
+    # df <- df[1:splice_end,]
     
     # bind lot data to collective data
     kilns_H <- bind_rows(kilns_H, df)
