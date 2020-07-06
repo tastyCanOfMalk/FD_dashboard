@@ -1,12 +1,24 @@
-# concerning lotnos:
+# recollect kiln data -----------------------------------------------------
 
-# 022818C
-# 120519A
-# 120319H
-# 022818C
-# 022818G
-# 050118G
+kilns_AB <- read_csv("data/kiln/export/kilns_AB.csv") %>% 
+  mutate(year = as.factor(year)) %>% 
+  mutate_if(is.character, as.factor)
+kilns_C  <- read_csv("data/kiln/export/kilns_C.csv") %>% 
+  mutate(year = as.factor(year)) %>% 
+  mutate_if(is.character, as.factor)
+kilns_D  <- read_csv("data/kiln/export/kilns_D.csv") %>% 
+  mutate(year = as.factor(year)) %>% 
+  mutate_if(is.character, as.factor)
+kilns_F  <- read_csv("data/kiln/export/kilns_F.csv") %>% 
+  mutate(year = as.factor(year)) %>% 
+  mutate_if(is.character, as.factor)
+kilns_G  <- read_csv("data/kiln/export/kilns_G.csv") %>% 
+  mutate(year = as.factor(year)) %>% 
+  mutate_if(is.character, as.factor)
+kilns_H  <- read_csv("data/kiln/export/kilns_H.csv") %>% 
+  mutate(year = as.factor(year)) %>% 
+  mutate_if(is.character, as.factor)
 
-source("getKilnData2018.R")
-source("getKilnData2019v2.R")
-source("getKilnData2020.R")
+
+
+
