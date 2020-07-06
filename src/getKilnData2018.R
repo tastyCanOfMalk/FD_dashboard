@@ -10,7 +10,6 @@ kilns_dir <- "data/kiln/Kiln Run Data_2018"
 kilns <- list.dirs(kilns_dir, recursive = FALSE)
 
 # KILNS A, B ---------------------------------------------------------------------
-mylist <- list()
 kilns_AB <- tibble()
 
 for(kiln in kilns[1:2]){
@@ -75,7 +74,10 @@ for(kiln in kilns[1:2]){
 }
 
 # select and mutate
-kilns_AB_2018 <- select_mutate(kilns_AB)
+kilns_AB <- kilns_AB[!is.na(kilns_AB$date),]
+
+kilns_AB_2018 <- select_mutate(kilns_AB) %>% 
+  dplyr::select(-c(t_c_51a, t_c_51b, t_c_52a, t_c_52b, temp_sp, bzon_out, tzon_out))
 
 # length(levels(kilns_AB_2018$LOTNO))
 # plot_range   (kilns_AB_2018,1,56)
@@ -83,7 +85,6 @@ kilns_AB_2018 <- select_mutate(kilns_AB)
 
 
 # KILNS C ------------------------------------------------------------------
-# mylist <- list()
 kilns_C <- tibble()
 
 for(kiln in kilns[c(3)]){
@@ -142,10 +143,11 @@ for(kiln in kilns[c(3)]){
 }
 
 # select and mutate
+kilns_C <- kilns_C[!is.na(kilns_C$date),]
 kilns_C_2018 <- select_mutate(kilns_C)
 
 # length(levels(kilns_C_2018$LOTNO))
-# plot_range   (kilns_C_2018,1,56)
+plot_range   (kilns_C_2018,1,56)
 
 
 # KILNS D -----------------------------------------------------------------
@@ -213,6 +215,7 @@ for(kiln in kilns[c(4)]){
 }
 
 # select and mutate
+kilns_D <- kilns_D[!is.na(kilns_D$date),]
 kilns_D_2018 <- select_mutate(kilns_D)
 
 # length(levels(kilns_D_2018$LOTNO))
