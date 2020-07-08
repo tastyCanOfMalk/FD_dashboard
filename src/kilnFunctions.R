@@ -241,3 +241,85 @@ plot_range <- function(df = kilns_AB,
   )
 }
 
+
+mutateAucValues <- function(df = kilns_AB, 
+                            bot_temp_range = 400, 
+                            top_temp_range = 600){
+  
+  # Adds columns for calculating AUC between ranges and for displaying ribbon plot 
+  #   copies avg_kiln_temp if between range, else NA 
+  # 
+  # Args: 
+  #   df: the dataframe
+  #   bot_temp_range: lower range for detection of avg_kiln_temp
+  #   top_temp_range: upper range for detection of avg_kiln_temp
+  # 
+  # Returns: 
+  #   mutated original dataframe
+  
+  df <- df %>% 
+    dplyr::group_by(LOTNO) %>%
+    dplyr::summarise(index_max_temp = median( which( max(avg_kiln_temp,na.rm=TRUE) == avg_kiln_temp ) )) %>% 
+    right_join(df, by="LOTNO") %>% 
+    plyr::mutate(
+      # index_max_temp = median( which( max(avg_kiln_temp,na.rm=TRUE) == avg_kiln_temp ) ),
+      temp_in_range = ifelse(
+        ( (time < index_max_temp) & (avg_kiln_temp >= bot_temp_range) & (avg_kiln_temp <= top_temp_range) ),
+        avg_kiln_temp, NA),
+      setpoint_in_range = ifelse(
+        ( (time < index_max_temp) & (avg_kiln_temp >= bot_temp_range) & (avg_kiln_temp <= top_temp_range) ),
+        setpoint, NA),
+      auc_min = pmin(temp_in_range, setpoint_in_range),
+      auc_max = pmax(temp_in_range, setpoint_in_range)
+    ) %>% 
+    ungroup()
+  
+  return(df)
+}
+
+summariseAucValues <- function(df = kilns_AB){
+  
+  # Summarise total AUC values for each LOTNO, to be merged with original dataset
+  # 
+  # Args: 
+  #   df: the dataframe
+  # 
+  # Returns: 
+  #   summarised df with AUC values
+  
+  df <- df %>% 
+    group_by(LOTNO) %>% 
+    dplyr::summarise(aucMin = sum(auc_min, na.rm=TRUE),
+                     aucMax = sum(auc_max, na.rm=TRUE),
+                     auc    = abs(aucMin - aucMax)) %>% 
+    dplyr::select(-c(aucMin, aucMax))
+  
+  return(df)
+}
+
+plotAucValues <- function(df = kilns_AB){
+  
+  # Returns plots with shaded region where AUC is calculated,
+  #   allows quick comparison and verification of numbers
+  # 
+  # Args: 
+  #   df: the dataframe
+  # 
+  # Returns: 
+  #   plot with shaded AUC areas
+  
+  df %>% 
+    dplyr::filter((time < index_max_temp) & (avg_kiln_temp >= bot_temp_range) & (avg_kiln_temp <= top_temp_range)) %>%
+    ggplot(aes(x=time, y=avg_kiln_temp),color='black',size=.8)+
+    geom_line()+
+    geom_line(aes(y=setpoint),color='red')+
+    geom_ribbon(aes(ymin = auc_min, ymax = auc_max), fill='green', alpha=.3)+
+
+    
+    facet_wrap(~LOTNO, scales = "free_x")+
+    # facet_wrap(~LOTNO)+
+    scale_y_continuous(breaks = seq(400, 600, 200))+
+    theme_minimal()+
+    theme(axis.text.x=element_blank(),
+          axis.ticks.x=element_blank())
+}
