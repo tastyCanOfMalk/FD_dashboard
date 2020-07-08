@@ -1,4 +1,4 @@
-source("src/cleanCombine.R")
+# source("src/cleanCombine.R")
 
 # get functions -----------------------------------------------------------
 source("src/userFunctions.R")
@@ -48,8 +48,8 @@ for(kiln in kilns[1:2]){
                                                    lookahead3 = 200)
     }
     
-    if (lotno == "051018A") { splice_end = 3113 }
-    else if (lotno == "051418A") { splice_end = 2969}
+    if      (lotno == "051018A") { splice_end = 3113 }
+    else if (lotno == "051418A") { splice_end = 2969 }
     else{
       splice_end = index_splice_end(df = df, 
                                     temp_threshold = 100,
@@ -80,9 +80,11 @@ kilns_AB_2018 <- select_mutate(kilns_AB) %>%
   dplyr::select(-c(t_c_51a, t_c_51b, t_c_52a, t_c_52b, temp_sp, bzon_out, tzon_out))
 
 # length(levels(kilns_AB_2018$LOTNO))
-# plot_range   (kilns_AB_2018,1,56)
-# plot_range   (kilns_AB_2018,57,113)
-
+# plot_range   (kilns_AB_2018,1,25)
+# plot_range   (kilns_AB_2018,25,50)
+# plot_range   (kilns_AB_2018,51,75)
+# plot_range   (kilns_AB_2018,76,100)
+# plot_range   (kilns_AB_2018,101,125)
 
 # KILNS C ------------------------------------------------------------------
 kilns_C <- tibble()
@@ -147,8 +149,8 @@ kilns_C <- kilns_C[!is.na(kilns_C$date),]
 kilns_C_2018 <- select_mutate(kilns_C)
 
 # length(levels(kilns_C_2018$LOTNO))
-plot_range   (kilns_C_2018,1,56)
-
+# plot_range   (kilns_C_2018,1,25)
+# plot_range   (kilns_C_2018,25,50)
 
 # KILNS D -----------------------------------------------------------------
 
@@ -183,9 +185,10 @@ for(kiln in kilns[c(4)]){
     df <- update_time(df)
     
     # get beginning and end splices
-    if     ( lotno == "011818D" ){ splice_beginning = 635 }
-    else if( lotno == "012518D" ){ splice_beginning = 646 }
-    else if( lotno == "012518D" ){ splice_beginning = 981 }
+    if     ( lotno == "011818D" ){ splice_beginning = 1311 }
+    else if( lotno == "012518D" ){ splice_beginning = 1465 }
+    else if( lotno == "051818D" ){ splice_beginning = 1056 }
+    else if( lotno == "070918D" ){ splice_beginning = 1008 }
     else{
       splice_beginning = index_max_setpoint_change(df = df, 
                                                    threshold = 30, 
@@ -219,7 +222,9 @@ kilns_D <- kilns_D[!is.na(kilns_D$date),]
 kilns_D_2018 <- select_mutate(kilns_D)
 
 # length(levels(kilns_D_2018$LOTNO))
-# plot_range   (kilns_D_2018,1,56)
+# plot_range   (kilns_D_2018,1,25)
+# plot_range   (kilns_D_2018,25,50)
+# plot_range   (kilns_D_2018,filter="070918D",plotly_on = TRUE)
 
 # KILNS F -----------------------------------------------------------------
 
@@ -293,8 +298,8 @@ for(kiln in kilns[c(6)]){
 kilns_F_2018 <- select_mutate(kilns_F)
 
 # length(levels(kilns_F_2018$LOTNO))
-# plot_range   (kilns_F_2018,1,56)
-# plot_range   (kilns_F_2018,57,113)
+# plot_range   (kilns_F_2018,1,25)
+
 
 # KILNS G -----------------------------------------------------------------
 
@@ -347,7 +352,7 @@ for(kiln in kilns[c(7)]){
     
     # get beginning and end splices
     if     ( lotno == "012318G" ){ splice_beginning = 1434 }
-    else if( lotno == "" ){ splice_beginning = 1238 }
+    else if( lotno == "010418G" ){ splice_beginning = 702 }
     else{
       splice_beginning = index_max_setpoint_change(df = df, 
                                                    threshold = 170, 
@@ -382,9 +387,7 @@ for(kiln in kilns[c(7)]){
 kilns_G_2018 <- select_mutate(kilns_G)
 
 # length(levels(kilns_G_2018$LOTNO))
-# plot_range   (kilns_G_2018,1,56)
-# plot_range   (kilns_G_2018,57,113)
-
+# plot_range   (kilns_G_2018,1,25)
 
 # KILNS H -----------------------------------------------------------------
 
@@ -440,9 +443,13 @@ for(kiln in kilns[c(8)]){
     
     # get beginning and end splices
     if     ( lotno == "030118H" ){ splice_beginning = 2554 }
+    else if( lotno == "010518H" ){ splice_beginning = 431 }
+    else if( lotno == "030718H" ){ splice_beginning = 162 }
     else if( lotno == "072018H" ){ splice_beginning = 500 }
     else if( lotno == "072818H" ){ splice_beginning = 562 }
     else if( lotno == "090618H" ){ splice_beginning = 1200 }
+    else if( lotno == "101118H" ){ splice_beginning = 608 }
+    else if( lotno == "102518H" ){ splice_beginning = 593 }
     else if( lotno == "111518H" ){ splice_beginning = 1200 }
     else if( lotno == "112418H" ){ splice_beginning = 750 }
     else{
@@ -480,5 +487,9 @@ for(kiln in kilns[c(8)]){
 kilns_H_2018 <- select_mutate(kilns_H)
 
 # length(levels(kilns_H_2018$LOTNO))
-# plot_range   (kilns_H_2018,1,56)
-# plot_range   (kilns_H_2018,57,113)
+# plot_range   (kilns_H_2018,1,25)
+# plot_range   (kilns_H_2018,26,50)
+# plot_range   (kilns_H_2018,51,75)
+# plot_range   (kilns_H_2018, filter = "101118H", plotly_on = TRUE)
+# plot_range   (kilns_H_2018, filter = "101118H", plotly_on = TRUE)
+# plot_range   (kilns_H_2018, filter = "102518H", plotly_on = TRUE)

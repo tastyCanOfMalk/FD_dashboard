@@ -244,7 +244,8 @@ for(kiln in kilns[c(5)]){
     df <- update_time(df)
     
     # get beginning and end splices
-    if( lotno == "091619E" ){ splice_beginning = 3422 }
+    if     ( lotno == "032219E" ){ splice_beginning = 561 }
+    else if( lotno == "072619E" ){ splice_beginning = 999 }
     else{
       splice_beginning = index_max_setpoint_change(df = df, 
                                                    threshold = 5, 
@@ -275,7 +276,7 @@ for(kiln in kilns[c(5)]){
 kilns_E_2019 <- select_mutate(kilns_E)
 
 # length(levels(kilns_E_2019$LOTNO))
-# plot_range(kilns_E_2019,1,56)
+# plot_range(kilns_E_2019,1,25)
 
 # KILNS F -----------------------------------------------------------------
 
@@ -521,7 +522,7 @@ for(kiln in kilns[c(8)]){
 kilns_H_2019 <- select_mutate(kilns_H) %>% 
   dplyr::select(-c(x8,x9))
 
-kilns_H[is.na(kilns_H$air_act),] %>% view()
+# kilns_H[is.na(kilns_H$air_act),] %>% view()
 # length(levels(kilns_H_2019$LOTNO))
 # plot_range   (kilns_H_2019,1,56)
 # plot_range   (kilns_H_2019,57,112, splices = TRUE)

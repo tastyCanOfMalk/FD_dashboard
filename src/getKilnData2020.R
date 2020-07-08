@@ -207,6 +207,74 @@ kilns_D_2020 <- select_mutate(kilns_D)
 # length(levels(kilns_D_2020$LOTNO))
 # plot_range(kilns_D_2020,1,56)
 
+# KILNS E -----------------------------------------------------------------
+kilns_E <- tibble()
+
+for(kiln in kilns[c(5)]){
+  # loop thru each primrary kiln folder
+  kiln_name <- str_split(str_split(kiln, "/")[[1]][length(str_split(kiln, "/")[[1]])], "-")[[1]][1]
+  
+  for(sub_dir in list.dirs(kiln)[2:length(list.dirs(kiln))]){
+    # loop thru each lot in kiln folder
+    lotno <- str_split(str_split(sub_dir, "/")[[1]][length(str_split(sub_dir, "/")[[1]])], " ")[[1]][2]
+    lotno <- paste0(lotno, kiln_name)
+    
+    files1 <- list(paste0(sub_dir, "/", list.files(sub_dir, pattern = "1.CSV")))
+    files2 <- list(paste0(sub_dir, "/", list.files(sub_dir, pattern = "2.CSV")))
+    
+    # paste lotno, convert dates
+    df1 <- get_data(files = files1)
+    df2 <- get_data(files = files2)
+    
+    # join dfs
+    df <- left_join(df1,df2,by=c("LOTNO", "date", "time"))
+    
+    # rename columns
+    df <- df %>% 
+      dplyr::mutate(
+        avg_kiln_temp = rowMeans(select(., bot_t_c_1 ,bot_t_c_2 ,top_t_c_3 ,top_t_c_4))
+      )
+    
+    # create new time column
+    df <- update_time(df)
+    
+    # get beginning and end splices
+    if     ( lotno == "032219E" ){ splice_beginning = 561 }
+    else if( lotno == "072619E" ){ splice_beginning = 999 }
+    else{
+      splice_beginning = index_max_setpoint_change(df = df, 
+                                                   threshold = 30, 
+                                                   lookahead = 1,
+                                                   lookahead2 = 50)
+    }
+    
+    splice_end = index_splice_end(df = df, 
+                                  temp_threshold = 100,
+                                  setpoint_threshold = 1000,
+                                  setpoint_change_lookahead = 3,
+                                  setpoint_change_threshold = 1)
+    
+    # splice
+    df <- df[ splice_beginning : splice_end, ]
+    
+    # add splices
+    # df <- add_plot_splices(df)
+    
+    # create new time column, add kiln name
+    df <- update_time(df) %>% 
+      dplyr::mutate(kiln = kiln_name)
+    
+    # binds lots to kiln df
+    kilns_E <- bind_rows(kilns_E, df)
+  }
+}
+
+# select and mutate
+kilns_E_2020 <- select_mutate(kilns_E)
+
+# length(levels(kilns_E_2020$LOTNO))
+# plot_range(kilns_E_2020,1,25)
+
 # KILNS F -----------------------------------------------------------------
 
 kilns_F <- tibble()
@@ -267,7 +335,7 @@ for(kiln in kilns[c(6)]){
     df <- update_time(df) %>% 
       dplyr::mutate(kiln = kiln_name)
     
-    # bind lot data to collective data
+    # splice end
     df <- df[1:index_splice_end(df),]
     
     # bind lot data to collective data
@@ -348,8 +416,11 @@ for(kiln in kilns[c(7)]){
     df <- update_time(df) %>% 
       dplyr::mutate(kiln = kiln_name)
     
-    # bind lot data to collective data
+    # splice end
     df <- df[1:index_splice_end(df),]
+    
+    df <- df %>% 
+      
     
     # bind lot data to collective data
     kilns_G <- bind_rows(kilns_G, df)

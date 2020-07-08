@@ -22,7 +22,13 @@ index_max_temp <- function(df = df){
   # Returns: 
   #   index of max temperature value
   
-  return(median(which(max(df$avg_kiln_temp, na.rm=TRUE) == df$avg_kiln_temp)))
+  return(
+    median(
+      which(
+        max(df$avg_kiln_temp, na.rm=TRUE) == df$avg_kiln_temp
+        )
+      )
+    )
 }
 
 get_start_temp <- function(df = df){
