@@ -10,7 +10,9 @@ source("src/getKilnData2018.R")
 source("src/getKilnData2019.R")
 source("src/getKilnData2020.R")
 
-kilns_AB <- bind_rows(kilns_AB_2018, bind_rows(kilns_AB_2019, kilns_AB_2020)) %>% 
+kilns_AB <- bind_rows(kilns_AB_2018, 
+            bind_rows(kilns_AB_2019, 
+                      kilns_AB_2020)) %>% 
   plyr::mutate(year = as.factor(year(date))) %>%
   mutate_if(is.character, as.factor) %>% 
   dplyr::select(date, year, kiln, LOTNO, time, avg_kiln_temp, setpoint, everything()) 
@@ -68,7 +70,7 @@ kilns_H <- bind_rows(kilns_H_2018,
 write_csv(kilns_AB,"data/kiln/export/kilns_AB.csv")
 write_csv(kilns_C, "data/kiln/export/kilns_C.csv")
 write_csv(kilns_D, "data/kiln/export/kilns_D.csv")
-write_csv(kilns_D, "data/kiln/export/kilns_E.csv")
+write_csv(kilns_E, "data/kiln/export/kilns_E.csv")
 write_csv(kilns_F, "data/kiln/export/kilns_F.csv")
 write_csv(kilns_G, "data/kiln/export/kilns_G.csv")
 write_csv(kilns_H, "data/kiln/export/kilns_H.csv")
