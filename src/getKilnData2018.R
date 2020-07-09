@@ -1,5 +1,14 @@
 # source("src/cleanCombine.R")
 
+library(plyr)
+library(dplyr)
+library(tidyverse)
+library(naniar)
+library(lubridate)
+library(magrittr)
+library(janitor)
+
+
 # get functions -----------------------------------------------------------
 source("src/userFunctions.R")
 source("src/kilnFunctions.R")
@@ -37,9 +46,11 @@ for(kiln in kilns[1:2]){
     
     # get beginning and end splices
     if      (lotno == "030118A") { splice_beginning = 2660 }
+    else if (lotno == "030918A") { splice_beginning = 477 }
     else if (lotno == "050418A") { splice_beginning = 1311 }
     else if (lotno == "051018A") { splice_beginning = 1415 }
     else if (lotno == "051418A") { splice_beginning = 1296 }
+    else if (lotno == "113018A") { splice_beginning = 109 }
     else    { 
       splice_beginning = index_max_setpoint_change(df = df, 
                                                    threshold = 90, 
@@ -85,6 +96,8 @@ kilns_AB_2018 <- select_mutate(kilns_AB) %>%
 # plot_range   (kilns_AB_2018,51,75)
 # plot_range   (kilns_AB_2018,76,100)
 # plot_range   (kilns_AB_2018,101,125)
+
+plot_range(kilns_AB, filter="113018A",plotly_on=TRUE)
 
 # KILNS C ------------------------------------------------------------------
 kilns_C <- tibble()
@@ -219,8 +232,10 @@ for(kiln in kilns[c(4)]){
 
 # select and mutate
 kilns_D <- kilns_D[!is.na(kilns_D$date),]
+kilns_D <- kilns_D[!kilns_D$LOTNO == "010419D",]
 kilns_D_2018 <- select_mutate(kilns_D)
 
+levels(kilns_D_2018$LOTNO)
 # length(levels(kilns_D_2018$LOTNO))
 # plot_range   (kilns_D_2018,1,25)
 # plot_range   (kilns_D_2018,25,50)
@@ -267,9 +282,13 @@ for(kiln in kilns[c(6)]){
     df <- update_time(df)
     
     # get beginning and end splices
-    splice_beginning = index_max_setpoint_change(df = df, 
-                                                 threshold = 5, 
-                                                 lookahead = 1)
+    
+    if(lotno == "022818F"){splice_beginning = 3957}
+    else{
+      splice_beginning = index_max_setpoint_change(df = df, 
+                                                   threshold = 5, 
+                                                   lookahead = 1)
+    }
     splice_end = index_splice_end(df = df, 
                                   temp_threshold = 300,
                                   setpoint_threshold = 1000,
@@ -299,7 +318,7 @@ kilns_F_2018 <- select_mutate(kilns_F)
 
 # length(levels(kilns_F_2018$LOTNO))
 # plot_range   (kilns_F_2018,1,25)
-
+# plot_range   (kilns_F_2018,filter="022818F", plotly_on=T)
 
 # KILNS G -----------------------------------------------------------------
 

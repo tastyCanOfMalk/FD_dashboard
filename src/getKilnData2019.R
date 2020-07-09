@@ -111,9 +111,13 @@ for(kiln in kilns[c(3)]){
     df <- update_time(df)
     
     # get beginning and end splices
-    splice_beginning = index_max_setpoint_change(df = df, 
-                                                 threshold = 5, 
-                                                 lookahead = 1)
+    if(lotno == "011019C"){splice_beginning = 1026}
+    else if(lotno == "101619C"){splice_beginning = 583}
+    else{
+      splice_beginning = index_max_setpoint_change(df = df, 
+                                                   threshold = 5, 
+                                                   lookahead = 1)
+    }
     splice_end = index_splice_end(df = df, 
                                   temp_threshold = 100,
                                   setpoint_threshold = 1000,
@@ -140,6 +144,7 @@ kilns_C_2019 <- select_mutate(kilns_C)
 
 # length(levels(kilns_C_2019$LOTNO))
 # plot_range(kilns_C_2019,1,56)
+plot_range(kilns_C_2019,1,56, filter="101619C", plotly_on = TRUE)
 
 # KILNS D -----------------------------------------------------------------
 
@@ -175,6 +180,7 @@ for(kiln in kilns[c(4)]){
     
     # get beginning and end splices
     if( lotno == "020119D" ){ splice_beginning = 1207 }
+    else if( lotno == "010419D" ){ splice_beginning = 696 }
     else{
       splice_beginning = index_max_setpoint_change(df = df, 
                                                    threshold = 5, 
@@ -204,9 +210,11 @@ for(kiln in kilns[c(4)]){
 
 # select and mutate
 kilns_D_2019 <- select_mutate(kilns_D)
-
+kilns_D_2019 <- kilns_D_2019[!is.na(kilns_D_2019$LOTNO),]
+# kilns_D_2019 %>% dplyr::filter(LOTNO == "010419D") %>% view()
 # length(levels(kilns_D_2019$LOTNO))
 # plot_range(kilns_D_2019,1,56)
+# plot_range(kilns_D,filter="010419D",plotly_on=T)
 
   
 # KILNS E -----------------------------------------------------------------
@@ -245,6 +253,7 @@ for(kiln in kilns[c(5)]){
     
     # get beginning and end splices
     if     ( lotno == "032219E" ){ splice_beginning = 561 }
+    else if( lotno == "091619E" ){ splice_beginning = 3434 }
     else if( lotno == "072619E" ){ splice_beginning = 999 }
     else{
       splice_beginning = index_max_setpoint_change(df = df, 
@@ -277,6 +286,7 @@ kilns_E_2019 <- select_mutate(kilns_E)
 
 # length(levels(kilns_E_2019$LOTNO))
 # plot_range(kilns_E_2019,1,25)
+plot_range(kilns_E_2019,filter="091619E", plotly_on=T)
 
 # KILNS F -----------------------------------------------------------------
 
@@ -319,9 +329,12 @@ for(kiln in kilns[c(6)]){
     df <- update_time(df)
     
     # get beginning and end splices
-    splice_beginning = index_max_setpoint_change(df = df, 
-                                                 threshold = 5, 
-                                                 lookahead = 1)
+    if(lotno == "091319F"){splice_beginning = 671}
+    else{
+      splice_beginning = index_max_setpoint_change(df = df, 
+                                                   threshold = 5, 
+                                                   lookahead = 1)
+    }
     splice_end = index_splice_end(df = df, 
                                   temp_threshold = 300,
                                   setpoint_threshold = 1000,
@@ -351,6 +364,7 @@ kilns_F_2019 <- select_mutate(kilns_F)
 
 # length(levels(kilns_F_2019$LOTNO))
 # plot_range   (kilns_F_2019,1,56)
+# plot_range   (kilns_F_2019,filter = "091319F",plotly_on=T)
 
 # KILNS G -----------------------------------------------------------------
 
