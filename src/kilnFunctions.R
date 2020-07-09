@@ -256,19 +256,31 @@ mutateAucValues <- function(df = kilns_AB,
   # 
   # Returns: 
   #   mutated original dataframe
+  #   temp_in_range: copies avg_kiln_temp if between ranges, else NA
+  #   setpoint_in_range: copies setpoint if between ranges, else NA
+  #   auc_min: min value of setpoint or avg_kiln_temp, for ribbon plotting
+  #   auc_max: max value of setpoint or avg_kiln_temp, for ribbon plotting
   
   df <- df %>% 
     dplyr::group_by(LOTNO) %>%
-    dplyr::summarise(index_max_temp = median( which( max(avg_kiln_temp,na.rm=TRUE) == avg_kiln_temp ) )) %>% 
-    right_join(df, by="LOTNO") %>% 
+    dplyr::summarise(index_max_temp = median( which( max(avg_kiln_temp, na.rm=TRUE) == avg_kiln_temp ) )) %>% 
+    right_join(df, by="LOTNO") %>%
+    # uses setpoint to determine if in range
     plyr::mutate(
-      # index_max_temp = median( which( max(avg_kiln_temp,na.rm=TRUE) == avg_kiln_temp ) ),
       temp_in_range = ifelse(
-        ( (time < index_max_temp) & (avg_kiln_temp >= bot_temp_range) & (avg_kiln_temp <= top_temp_range) ),
+        ( (time < index_max_temp) & (setpoint >= bot_temp_range) & (setpoint <= top_temp_range) ),
         avg_kiln_temp, NA),
       setpoint_in_range = ifelse(
-        ( (time < index_max_temp) & (avg_kiln_temp >= bot_temp_range) & (avg_kiln_temp <= top_temp_range) ),
+        ( (time < index_max_temp) & (setpoint >= bot_temp_range) & (setpoint <= top_temp_range) ),
         setpoint, NA),
+    # uses avg_kiln_temp to determine if in range
+    # plyr::mutate(
+    #   temp_in_range = ifelse(
+    #     ( (time < index_max_temp) & (avg_kiln_temp >= bot_temp_range) & (avg_kiln_temp <= top_temp_range) ),
+    #     avg_kiln_temp, NA),
+    #   setpoint_in_range = ifelse(
+    #     ( (time < index_max_temp) & (avg_kiln_temp >= bot_temp_range) & (avg_kiln_temp <= top_temp_range) ),
+    #     setpoint, NA),
       auc_min = pmin(temp_in_range, setpoint_in_range),
       auc_max = pmax(temp_in_range, setpoint_in_range)
     ) %>% 
@@ -289,15 +301,21 @@ summariseAucValues <- function(df = kilns_AB){
   
   df <- df %>% 
     group_by(LOTNO) %>% 
-    dplyr::summarise(aucMin = sum(auc_min, na.rm=TRUE),
-                     aucMax = sum(auc_max, na.rm=TRUE),
-                     auc    = abs(aucMin - aucMax)) %>% 
+    dplyr::summarise(aucMin  = sum(auc_min, na.rm=TRUE),
+                     aucMax  = sum(auc_max, na.rm=TRUE),
+                     aucDiff = abs(aucMin - aucMax)) %>%
     dplyr::select(-c(aucMin, aucMax))
   
   return(df)
 }
 
-plotAucValues <- function(df = kilns_AB){
+plotAucValues <- function(df = kilns_AB, 
+                          start = 1, 
+                          end = 25, 
+                          crop = FALSE, 
+                          filter = NA, 
+                          text.size = 3.5,
+                          free.x = FALSE){
   
   # Returns plots with shaded region where AUC is calculated,
   #   allows quick comparison and verification of numbers
@@ -308,18 +326,122 @@ plotAucValues <- function(df = kilns_AB){
   # Returns: 
   #   plot with shaded AUC areas
   
-  df %>% 
-    dplyr::filter((time < index_max_temp) & (avg_kiln_temp >= bot_temp_range) & (avg_kiln_temp <= top_temp_range)) %>%
-    ggplot(aes(x=time, y=avg_kiln_temp),color='black',size=.8)+
-    geom_line()+
-    geom_line(aes(y=setpoint),color='red')+
-    geom_ribbon(aes(ymin = auc_min, ymax = auc_max), fill='green', alpha=.3)+
-
-    
-    facet_wrap(~LOTNO, scales = "free_x")+
-    # facet_wrap(~LOTNO)+
-    scale_y_continuous(breaks = seq(400, 600, 200))+
-    theme_minimal()+
-    theme(axis.text.x=element_blank(),
-          axis.ticks.x=element_blank())
+  df <- df %>% 
+    summariseAucValues() %>% 
+    right_join(df, by="LOTNO")
+  
+  # constants from mutateAuc() function
+  bot_temp_range <- 400
+  top_temp_range <- 600
+  
+  lotno_levels = levels(unlist(df %>% dplyr::select(LOTNO)))
+  
+  # filter LOTNOs
+  if(is.na(filter)){
+    df <- df %>% 
+      dplyr::filter(LOTNO %in% lotno_levels[c(start:end)])
+  }
+  else{
+    df <- df %>% 
+      dplyr::filter(LOTNO == filter)
+  }
+  
+  # crop to shaded area of plot
+  # df2 <- df %>% 
+  #   dplyr::filter((time < index_max_temp) & (avg_kiln_temp >= bot_temp_range) & (avg_kiln_temp <= top_temp_range))
+  df2 <- df %>% 
+    dplyr::filter((time < index_max_temp) & (setpoint >= bot_temp_range) & (setpoint <= top_temp_range))
+  
+  # location for geom_texts
+  text_locations <- df2 %>% 
+    dplyr::summarise(
+      time = quantile(time, .5),
+      temp = quantile(setpoint, .4),
+      max_temp = min(index_max_temp, na.rm=TRUE)
+    )
+  
+  # plots
+  if(crop & !free.x){
+    df2 %>% 
+      ggplot(aes(x=time, y=avg_kiln_temp),color='black',size=.8)+
+      geom_line()+
+      geom_line(aes(y=setpoint),color='red')+
+      geom_ribbon(aes(ymin = auc_min, ymax = auc_max), fill='green', alpha=.3)+
+      geom_text(data = df %>% distinct(LOTNO, aucDiff),
+                aes(x = text_locations[[1]],
+                    y = text_locations[[2]],
+                    label = mynumber(aucDiff)),
+                vjust = "inward", hjust="inward",
+                fontface = 'bold',
+                color='red',
+                size = text.size) +
+      scale_y_continuous(breaks = seq(200, 1000, 200))+
+      theme_minimal()+
+      facet_wrap(~LOTNO)+
+      # facet_wrap(~LOTNO, scales = "free_x")+
+      theme(axis.text.x=element_blank(),
+            axis.ticks.x=element_blank())
+  }
+  else if(!crop & !free.x){
+    df %>% 
+      ggplot(aes(x=time, y=avg_kiln_temp),color='black',size=.8)+
+      geom_line()+
+      geom_line(aes(y=setpoint),color='red')+
+      geom_ribbon(aes(ymin = auc_min, ymax = auc_max), fill='green', alpha=1)+
+      geom_text(data = df %>% distinct(LOTNO, aucDiff),
+                aes(x = text_locations[[3]], 
+                    y = text_locations[[2]], 
+                    label = mynumber(aucDiff)), 
+                fontface = 'bold',
+                color = "red", 
+                size = text.size) +
+      scale_y_continuous(breaks = seq(0, 5000, 1000))+
+      scale_x_continuous(breaks = seq(0, 5000, 1000))+
+      theme_minimal()+
+      facet_wrap(~LOTNO)+
+      theme(axis.text.x=element_blank(),
+            axis.ticks.x=element_blank(),
+            axis.text.y=element_blank(),
+            axis.ticks.y=element_blank()
+      )
+  }  
+  else if(crop & free.x){
+    df2 %>% 
+      ggplot(aes(x=time, y=avg_kiln_temp),color='black',size=.8)+
+      geom_line()+
+      geom_line(aes(y=setpoint),color='red')+
+      geom_ribbon(aes(ymin = auc_min, ymax = auc_max), fill='green', alpha=.3)+
+    scale_y_continuous(breaks = seq(200, 1000, 200))+
+      theme_minimal()+
+      facet_wrap(~LOTNO, scales = "free_x")+
+      theme(axis.text.x=element_blank(),
+            axis.ticks.x=element_blank())
+  }
+  else if(!crop & free.x){
+    df %>% 
+      ggplot(aes(x=time, y=avg_kiln_temp),color='black',size=.8)+
+      geom_line()+
+      geom_line(aes(y=setpoint),color='red')+
+      geom_ribbon(aes(ymin = auc_min, ymax = auc_max), fill='green', alpha=1)+
+      geom_text(data = df %>% distinct(LOTNO, aucDiff),
+                aes(x = text_locations[[3]], 
+                    y = text_locations[[2]], 
+                    label = mynumber(aucDiff)), 
+                fontface = 'bold',
+                color = "red", 
+                size = text.size) +
+      scale_y_continuous(breaks = seq(0, 5000, 1000))+
+      scale_x_continuous(breaks = seq(0, 5000, 1000))+
+      theme_minimal()+
+      facet_wrap(~LOTNO, scales = "free_x")+
+      theme(axis.text.x=element_blank(),
+            axis.ticks.x=element_blank(),
+            axis.text.y=element_blank(),
+            axis.ticks.y=element_blank()
+      )
+  }  
+  else{
+    print("invalid flag combo")
+  }
+  
 }
