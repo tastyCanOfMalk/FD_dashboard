@@ -3,83 +3,131 @@ library(tidyverse)
 source("src/kilnFunctions.R")
 source("src/userFunctions.R")
 
-# import processed kiln data -----------------------------------------------------
-kilns_AB <- read_csv("data/kiln/export/kilns_AB.csv") %>% 
-  mutate(year = as.factor(year)) %>% 
-  mutate_if(is.character, as.factor)%>% 
-  mutateAucValues()
-kilns_C  <- read_csv("data/kiln/export/kilns_C.csv") %>% 
-  mutate(year = as.factor(year)) %>% 
-  mutate_if(is.character, as.factor)%>% 
-  mutateAucValues()
-kilns_D  <- read_csv("data/kiln/export/kilns_D.csv") %>% 
-  mutate(year = as.factor(year)) %>% 
-  mutate_if(is.character, as.factor) %>% 
-  mutateAucValues()
-kilns_E  <- read_csv("data/kiln/export/kilns_E.csv") %>% 
-  mutate(year = as.factor(year)) %>% 
-  mutate_if(is.character, as.factor)%>% 
-  mutateAucValues()
-kilns_F  <- read_csv("data/kiln/export/kilns_F.csv") %>% 
-  mutate(year = as.factor(year)) %>% 
-  mutate_if(is.character, as.factor)%>% 
-  mutateAucValues()
-kilns_G  <- read_csv("data/kiln/export/kilns_G.csv") %>% 
-  mutate(year = as.factor(year)) %>% 
-  mutate_if(is.character, as.factor)%>% 
-  mutateAucValues()
-kilns_H  <- read_csv("data/kiln/export/kilns_H.csv") %>% 
-  mutate(year = as.factor(year)) %>% 
-  mutate_if(is.character, as.factor) %>% 
-  mutateAucValues() 
+rm(list = ls())
 
-# view plots --------------------------------------------------------------
-# # length(levels(kilns_AB$LOTNO)) # 277
-# plotAucValues(df = kilns_AB, 1, 56,    crop=T, free.x=F)
-# plotAucValues(df = kilns_AB, 57, 112,  crop=T, free.x=F)
-# plotAucValues(df = kilns_AB, 113, 168, crop=T, free.x=F)
-# plotAucValues(df = kilns_AB, 169, 224, crop=T, free.x=F)
-# plotAucValues(df = kilns_AB, 225, 280, crop=T, free.x=F)
-# 
-# # length(levels(kilns_C$LOTNO))  # 56
-# plotAucValues(df = kilns_C, 1, 56,    crop=T, free.x=F)
-# 
-# # length(levels(kilns_D$LOTNO))  # 92
-# plotAucValues(df = kilns_D, 1, 56,    crop=T, free.x=F)
-# plotAucValues(df = kilns_D, 57, 112,  crop=T, free.x=F)
-# 
-# # length(levels(kilns_E$LOTNO))  # 17
-# plotAucValues(df = kilns_E, 1, 56,    crop=T, free.x=F)
-# 
-# # length(levels(kilns_F$LOTNO))  # 122
-# plotAucValues(df = kilns_F, 1, 56,    crop=T, free.x=F)
-# plotAucValues(df = kilns_F, 57, 112,  crop=T, free.x=F)
-# plotAucValues(df = kilns_F, 113, 168, crop=T, free.x=F)
-# 
-# # length(levels(kilns_G$LOTNO))  # 240
-# plotAucValues(df = kilns_G, 1, 56,    crop=T, free.x=F)
-# plotAucValues(df = kilns_G, 57, 112,  crop=T, free.x=F)
-# plotAucValues(df = kilns_G, 113, 168, crop=T, free.x=F)
-# plotAucValues(df = kilns_G, 169, 224, crop=T, free.x=F)
-# plotAucValues(df = kilns_G, 225, 280, crop=T, free.x=F)
-# 
-# # length(levels(kilns_H$LOTNO))  # 192
-# plotAucValues(df = kilns_H, 1, 56,    crop=T, free.x=F)
-# plotAucValues(df = kilns_H, 57, 112,  crop=T, free.x=F)
-# plotAucValues(df = kilns_H, 113, 168, crop=T, free.x=F)
-# plotAucValues(df = kilns_H, 169, 224, crop=T, free.x=F)
+# import data -------------------------------------------------------------
+df_merged <- read_csv("data/processed_data/df_merged.csv")
 
-# bind summary stats to df ------------------------------------------------
-allAucValues <- bind_rows(
-  kilns_AB %>% summariseAucValues(),
-  kilns_C %>% summariseAucValues(),
-  kilns_D %>% summariseAucValues(),
-  kilns_E %>% summariseAucValues(),
-  kilns_F %>% summariseAucValues(),
-  kilns_G %>% summariseAucValues(),
-  kilns_H %>% summariseAucValues()
-  )
+df_yields <- read_csv("data/processed_data/df_yields.csv")
 
-df_merged <- df_merged %>% 
+df_defects <- read_csv("data/processed_data/df_defects.csv")
+
+allAucValues <- read_csv("data/processed_data/kilnsAucValues.csv")
+
+# join kiln AUC to original data ------------------------------------------
+# ONLY > 2018 (kiln data 2018-2020)
+
+df_merged_auc <- df_merged %>% 
+  dplyr::filter(year(FIRE_DATE) >= 2018) %>% 
   left_join(allAucValues, by='LOTNO') %>% 
-  mutate(LOTNO = as.factor(LOTNO))
+  dplyr::mutate_if(is.character, as.factor) %>% 
+  mutate(LOTNO = as.factor(LOTNO),
+         ITEM = as.factor(ITEM)) %>% 
+  na.omit(aucDiff)
+# gg_miss_var(df_merged)
+# length(levels(df_merged$LOTNO))
+
+df_yields_auc <- df_yields %>% 
+  dplyr::filter(year(FIRE_DATE) >= 2018) %>% 
+  left_join(allAucValues, by='LOTNO') %>% 
+  dplyr::mutate_if(is.character, as.factor) %>% 
+  mutate(LOTNO = as.factor(LOTNO),
+         ITEM = as.factor(ITEM)) %>% 
+  mutate(LOTNO = as.factor(LOTNO))%>% 
+  na.omit(aucDiff)
+# gg_miss_var(df_yields)
+# length(levels(df_yields$LOTNO))
+
+df_defects_auc <- df_defects %>% 
+  dplyr::filter(year(FIRE_DATE) >= 2018) %>% 
+  left_join(allAucValues, by='LOTNO') %>% 
+  dplyr::mutate_if(is.character, as.factor) %>% 
+  mutate(LOTNO = as.factor(LOTNO),
+         ITEM = as.factor(ITEM)) %>% 
+  mutate(LOTNO = as.factor(LOTNO))%>% 
+  na.omit(aucDiff)
+# gg_miss_var(df_defects)
+# length(levels(df_defects$LOTNO))
+
+plot_range   (kilns_G, 190, 201)
+plotAucValues(kilns_G, 190, 201)
+plotAucValues(kilns_G, 190, 201, crop = T)
+plotAucValues(kilns_G, 190, 201, crop = T, free.x = T)
+
+df_yields_auc %>% 
+  dplyr::select(LOTNO, KILN, aucDiff)
+
+
+
+
+
+
+
+`# allAucValues <- allAucValues %>% dplyr::mutate_if(is.character, as.factor)
+# length(levels(allAucValues$LOTNO))
+
+# check influence of AUC on overall yields --------------------------------
+
+# do some items have higher yields in some kilns based on AUC or weather?
+
+# get top 50 most popular items in kiln G to check
+
+df_sub <- df_yields %>% 
+  dplyr::filter(KILN == "G") %>% 
+  count(DESCRIPTION) %>% 
+  left_join(df_yields %>% dplyr::filter(KILN == "G"))
+  dplyr::filter(n >= 25)
+
+df_sub %>% 
+  ggplot(aes(x=DESCRIPTION))+
+  geom_boxplot(aes(y=total_item_pct_yield))+
+  # geom_boxplot(aes(y=aucDiff))+
+  coord_flip()
+
+
+
+glimpse(df_sub)
+lm1 <- glm(total_item_pct_yield ~ aucDiff + temp_avg, 
+    data=df_sub)
+summary(lm1)
+
+df_yields %>% 
+  dplyr::filter(KILN == "G") %>% 
+  count(DESCRIPTION, ITEM) %>% 
+  left_join(df_yields) %>% 
+  dplyr::filter(n >= 30) %>%
+  ggplot(aes(x=DESCRIPTION))+
+  geom_boxplot(aes(y=total_item_pct_yield))
+  # facet_wrap(~DESCRIPTION)
+
+sub <- df_yields %>% 
+  dplyr::filter(KILN == "G") %>% 
+  count(DESCRIPTION, ITEM) %>% 
+  left_join(df_yields) %>% 
+  dplyr::filter(n >= 30)
+sub %>% 
+  count(DESCRIPTION)
+
+levels(sub$DESCRIPTION)
+
+
+
+library(tidymodels)
+library(skimr)
+
+df %>% 
+  count(DESCRIPTION,ITEM) %>% 
+  # count(DESCRIPTION) %>% 
+  arrange(-n) %>% slice(1:50)
+  
+
+
+skim(df)
+
+set.seed(1)
+
+df_split  <-  initial_split(df, prop = .75)
+df_split
+
+df_split %>% 
+  training() %>% glimpse()

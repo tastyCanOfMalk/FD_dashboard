@@ -667,7 +667,9 @@ raw_weather <- read_csv("data/resources/2210654.csv") %>%
   clean_names() %>% 
   dplyr::select(date,prcp,snow,snwd,tmax,tmin) %>% 
   set_colnames(c('date','precip','snow_fall','snow_depth','temp_max','temp_min')) %>% 
-  plyr::mutate(temp_avg = round(mean(c(temp_max, temp_min))))
+  plyr::mutate(
+    temp_avg = rowMeans(select(., temp_max, temp_min))
+    )
 
 df_merged <- df_merged %>% 
   left_join(raw_weather, by=c('FIRE_DATE' = 'date'))

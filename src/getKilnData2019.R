@@ -1,10 +1,8 @@
-# source("src/cleanCombine.R")
-
 # get functions -----------------------------------------------------------
 source("src/userFunctions.R")
 source("src/kilnFunctions.R")
 
-library(plotly)
+# library(plotly)
 
 kilns_dir <- "data/kiln/Kiln Run Data_2019"
 kilns <- list.dirs(kilns_dir, recursive = FALSE)
@@ -144,7 +142,7 @@ kilns_C_2019 <- select_mutate(kilns_C)
 
 # length(levels(kilns_C_2019$LOTNO))
 # plot_range(kilns_C_2019,1,56)
-plot_range(kilns_C_2019,1,56, filter="101619C", plotly_on = TRUE)
+# plot_range(kilns_C_2019,1,56, filter="101619C", plotly_on = TRUE)
 
 # KILNS D -----------------------------------------------------------------
 
@@ -286,7 +284,7 @@ kilns_E_2019 <- select_mutate(kilns_E)
 
 # length(levels(kilns_E_2019$LOTNO))
 # plot_range(kilns_E_2019,1,25)
-plot_range(kilns_E_2019,filter="091619E", plotly_on=T)
+# plot_range(kilns_E_2019,filter="091619E", plotly_on=T)
 
 # KILNS F -----------------------------------------------------------------
 

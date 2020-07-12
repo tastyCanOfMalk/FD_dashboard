@@ -1,19 +1,8 @@
-# source("src/cleanCombine.R")
-
-library(plyr)
-library(dplyr)
-library(tidyverse)
-library(naniar)
-library(lubridate)
-library(magrittr)
-library(janitor)
-
-
 # get functions -----------------------------------------------------------
 source("src/userFunctions.R")
 source("src/kilnFunctions.R")
 
-library(plotly)
+# library(plotly)
 
 kilns_dir <- "data/kiln/Kiln Run Data_2018"
 kilns <- list.dirs(kilns_dir, recursive = FALSE)
@@ -96,8 +85,7 @@ kilns_AB_2018 <- select_mutate(kilns_AB) %>%
 # plot_range   (kilns_AB_2018,51,75)
 # plot_range   (kilns_AB_2018,76,100)
 # plot_range   (kilns_AB_2018,101,125)
-
-plot_range(kilns_AB, filter="113018A",plotly_on=TRUE)
+# plot_range(kilns_AB, filter="113018A",plotly_on=TRUE)
 
 # KILNS C ------------------------------------------------------------------
 kilns_C <- tibble()

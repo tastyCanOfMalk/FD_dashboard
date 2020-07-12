@@ -419,9 +419,6 @@ for(kiln in kilns[c(7)]){
     # splice end
     df <- df[1:index_splice_end(df),]
     
-    df <- df %>% 
-      
-    
     # bind lot data to collective data
     kilns_G <- bind_rows(kilns_G, df)
   }
@@ -523,5 +520,5 @@ for(kiln in kilns[c(8)]){
 # select and mutate
 kilns_H_2020 <- select_mutate(kilns_H)
 
-length(levels(kilns_H_2020$LOTNO))
-plot_range(kilns_H_2020,1,56)
+# length(levels(kilns_H_2020$LOTNO))
+# plot_range(kilns_H_2020,1,56)

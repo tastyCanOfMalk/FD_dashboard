@@ -176,7 +176,12 @@ plot_range <- function(df = kilns_AB,
       geom_point(size = .8)+
       geom_line(aes(y= setpoint), color = 'black')+
       theme(legend.position = "none")+
-      facet_wrap(~LOTNO, scales = "free")
+      facet_wrap(~LOTNO)+
+      theme(axis.text.x=element_blank(),
+            axis.ticks.x=element_blank(),
+            axis.text.y=element_blank(),
+            axis.ticks.y=element_blank())
+      # facet_wrap(~LOTNO, scales = "free")
   }
   else if(is.na(filter) & splices & !plotly_on){
     df %>% 
@@ -376,7 +381,7 @@ plotAucValues <- function(df = kilns_AB,
                 color='red',
                 size = text.size) +
       scale_y_continuous(breaks = seq(200, 1000, 200))+
-      theme_minimal()+
+      # theme_minimal()+
       facet_wrap(~LOTNO)+
       # facet_wrap(~LOTNO, scales = "free_x")+
       theme(axis.text.x=element_blank(),
@@ -397,7 +402,7 @@ plotAucValues <- function(df = kilns_AB,
                 size = text.size) +
       scale_y_continuous(breaks = seq(0, 5000, 1000))+
       scale_x_continuous(breaks = seq(0, 5000, 1000))+
-      theme_minimal()+
+      # theme_minimal()+
       facet_wrap(~LOTNO)+
       theme(axis.text.x=element_blank(),
             axis.ticks.x=element_blank(),
@@ -412,7 +417,7 @@ plotAucValues <- function(df = kilns_AB,
       geom_line(aes(y=setpoint),color='red')+
       geom_ribbon(aes(ymin = auc_min, ymax = auc_max), fill='green', alpha=.3)+
     scale_y_continuous(breaks = seq(200, 1000, 200))+
-      theme_minimal()+
+      # theme_minimal()+
       facet_wrap(~LOTNO, scales = "free_x")+
       theme(axis.text.x=element_blank(),
             axis.ticks.x=element_blank())
@@ -432,7 +437,7 @@ plotAucValues <- function(df = kilns_AB,
                 size = text.size) +
       scale_y_continuous(breaks = seq(0, 5000, 1000))+
       scale_x_continuous(breaks = seq(0, 5000, 1000))+
-      theme_minimal()+
+      # theme_minimal()+
       facet_wrap(~LOTNO, scales = "free_x")+
       theme(axis.text.x=element_blank(),
             axis.ticks.x=element_blank(),
