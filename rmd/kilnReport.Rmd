@@ -11,11 +11,14 @@ output:
     highlight: textmate
 ---
 
-```{r setup, include=FALSE}
+```{r setup, include = FALSE}
 knitr::opts_chunk$set(echo    = TRUE,
                       error   = FALSE,
                       message = FALSE,
-                      warning = FALSE)
+                      warning = FALSE,
+                      cache   = TRUE,
+                      fig.width = 8, fig.height = 5,
+                      dpi = 180)
 rm(list = ls())
 
 # load stuff
@@ -32,12 +35,14 @@ df_merged    <- read_csv("../data/processed_data/df_merged.csv")
 df_yields    <- read_csv("../data/processed_data/df_yields.csv")
 df_defects   <- read_csv("../data/processed_data/df_defects.csv")
 kilns_AB  <- read_csv("../data/processed_data/kilns_AB.csv") %>% mutate_if(is.character,as.factor)
-kilns_C   <- read_csv("../data/processed_data/kilns_C.csv") %>% mutate_if(is.character,as.factor)
-kilns_D   <- read_csv("../data/processed_data/kilns_D.csv") %>% mutate_if(is.character,as.factor)
-kilns_E   <- read_csv("../data/processed_data/kilns_E.csv") %>% mutate_if(is.character,as.factor)
-kilns_F   <- read_csv("../data/processed_data/kilns_F.csv") %>% mutate_if(is.character,as.factor)
-kilns_G   <- read_csv("../data/processed_data/kilns_G.csv") %>% mutate_if(is.character,as.factor)
-kilns_H   <- read_csv("../data/processed_data/kilns_H.csv") %>% mutate_if(is.character,as.factor)
+kilns_C   <- read_csv("../data/processed_data/kilns_C.csv")  %>% mutate_if(is.character,as.factor)
+kilns_D   <- read_csv("../data/processed_data/kilns_D.csv")  %>% mutate_if(is.character,as.factor)
+kilns_E   <- read_csv("../data/processed_data/kilns_E.csv")  %>% mutate_if(is.character,as.factor)
+kilns_F   <- read_csv("../data/processed_data/kilns_F.csv")  %>% 
+  mutate_if(is.character,as.factor) %>% 
+  mutate(kiln = as.factor("F"))
+kilns_G   <- read_csv("../data/processed_data/kilns_G.csv")  %>% mutate_if(is.character,as.factor)
+kilns_H   <- read_csv("../data/processed_data/kilns_H.csv")  %>% mutate_if(is.character,as.factor)
 
 allAucValues <- read_csv("../data/processed_data/kilnsAucValues.csv")
 
@@ -66,24 +71,38 @@ df_defects_auc <- df_defects %>%
   na.omit(aucDiff)
 ```
 
-# Cleaned data 
+# Cleaned data {.tabset .tabset-pills .tabset-fade}
 
 Imported and cleaned all kiln data available from 2018-2020. Involved using an algorithm to remove high peaks and valleys, detection of when the "start" of a run was based on setpoint increases and kiln temperature increases. We now have mostly clean plots with a few exceptions.  
 
+## Assorted
+
+Assorted lots from each kiln.  
+
 ```{r}
 all_kilns <- bind_rows(
-  kilns_AB %>% dplyr::select(time, setpoint, avg_kiln_temp, LOTNO, auc_min, auc_max),
-  kilns_C %>% dplyr::select(time, setpoint, avg_kiln_temp, LOTNO, auc_min, auc_max),
-  kilns_D %>% dplyr::select(time, setpoint, avg_kiln_temp, LOTNO, auc_min, auc_max),
-  kilns_E %>% dplyr::select(time, setpoint, avg_kiln_temp, LOTNO, auc_min, auc_max),
-  kilns_F %>% dplyr::select(time, setpoint, avg_kiln_temp, LOTNO, auc_min, auc_max),
-  kilns_G %>% dplyr::select(time, setpoint, avg_kiln_temp, LOTNO, auc_min, auc_max),
-  kilns_H %>% dplyr::select(time, setpoint, avg_kiln_temp, LOTNO, auc_min, auc_max)
+  kilns_AB %>% dplyr::select(time, setpoint, avg_kiln_temp, LOTNO, auc_min, auc_max, kiln),
+  kilns_C  %>% dplyr::select(time, setpoint, avg_kiln_temp, LOTNO, auc_min, auc_max, kiln),
+  kilns_D  %>% dplyr::select(time, setpoint, avg_kiln_temp, LOTNO, auc_min, auc_max, kiln),
+  kilns_E  %>% dplyr::select(time, setpoint, avg_kiln_temp, LOTNO, auc_min, auc_max, kiln),
+  kilns_F  %>% dplyr::select(time, setpoint, avg_kiln_temp, LOTNO, auc_min, auc_max, kiln),
+  kilns_G  %>% dplyr::select(time, setpoint, avg_kiln_temp, LOTNO, auc_min, auc_max, kiln),
+  kilns_H  %>% dplyr::select(time, setpoint, avg_kiln_temp, LOTNO, auc_min, auc_max, kiln)
 )
 
 # random sample of LOTNOs
-set.seed(3)
-n_kilns <- sample_n(all_kilns, 12) %>% dplyr::select(LOTNO) %>% unlist()
+set.seed(505)
+n_kilns <- sample_n(all_kilns, 16) %>% dplyr::select(LOTNO) %>% unlist()
+
+n_kilns <- sample_n(all_kilns %>% dplyr::filter(kiln == "A"), 2) %>% dplyr::select(LOTNO) %>% unlist()
+n_kilns <- bind_rows(sample_n(all_kilns %>% dplyr::filter(kiln == "B"), 2) %>% dplyr::select(LOTNO) %>% unlist(), n_kilns)
+n_kilns <- bind_rows(sample_n(all_kilns %>% dplyr::filter(kiln == "C"), 2) %>% dplyr::select(LOTNO) %>% unlist(), n_kilns)
+n_kilns <- bind_rows(sample_n(all_kilns %>% dplyr::filter(kiln == "D"), 2) %>% dplyr::select(LOTNO) %>% unlist(), n_kilns)
+n_kilns <- bind_rows(sample_n(all_kilns %>% dplyr::filter(kiln == "E"), 2) %>% dplyr::select(LOTNO) %>% unlist(), n_kilns)
+n_kilns <- bind_rows(sample_n(all_kilns %>% dplyr::filter(kiln == "F"), 2) %>% dplyr::select(LOTNO) %>% unlist(), n_kilns)
+n_kilns <- bind_rows(sample_n(all_kilns %>% dplyr::filter(kiln == "G"), 2) %>% dplyr::select(LOTNO) %>% unlist(), n_kilns)
+n_kilns <- bind_rows(sample_n(all_kilns %>% dplyr::filter(kiln == "H"), 2) %>% dplyr::select(LOTNO) %>% unlist(), n_kilns)
+n_kilns <- unlist(n_kilns)
 
 sample_kilns <- all_kilns %>% 
   dplyr::filter(LOTNO %in% n_kilns) %>% 
@@ -91,32 +110,203 @@ sample_kilns <- all_kilns %>%
   mutate(LOTNO = factor(LOTNO)) %>% 
   mutateAucValues()
 
-plot_range(sample_kilns)
+plot_range(sample_kilns, lot_compare=T)
 ```
 
-## AUC Calculations {.tabset}
+## A
 
-One measure that was mentioned to have potential importance in the defect rate of filters was the variation between `setpoint` and `average kiln temperature`, specifically in the 400°C to 600°C range. Another algorithm takes the absolute value of the difference between `setpoint` values and `average kiln temperature` values, and adds them together to produce a metric, `aucDiff` (or area between the two curves).  
+```{r}
+# random sample of LOTNOs
+set.seed(76)
+n_kilns <- sample_n(all_kilns %>% dplyr::filter(kiln == "A"), 16) %>% dplyr::select(LOTNO) %>% unlist()
 
-### AUC
+sample_kilns_a <- all_kilns %>% 
+  dplyr::filter(LOTNO %in% n_kilns) %>% 
+  mutate(LOTNO = as.character(LOTNO)) %>% 
+  mutate(LOTNO = factor(LOTNO)) %>% 
+  mutateAucValues()
+
+plot_range(sample_kilns_a)
+```
+
+## B
+
+```{r}
+# random sample of LOTNOs
+set.seed(76)
+n_kilns <- sample_n(all_kilns %>% dplyr::filter(kiln == "B"), 16) %>% dplyr::select(LOTNO) %>% unlist()
+
+sample_kilns_b <- all_kilns %>% 
+  dplyr::filter(LOTNO %in% n_kilns) %>% 
+  mutate(LOTNO = as.character(LOTNO)) %>% 
+  mutate(LOTNO = factor(LOTNO)) %>% 
+  mutateAucValues()
+
+plot_range(sample_kilns_b)
+```
+
+## C
+
+```{r}
+# random sample of LOTNOs
+set.seed(76)
+n_kilns <- sample_n(all_kilns %>% dplyr::filter(kiln == "C"), 16) %>% dplyr::select(LOTNO) %>% unlist()
+
+sample_kilns_c <- all_kilns %>% 
+  dplyr::filter(LOTNO %in% n_kilns) %>% 
+  mutate(LOTNO = as.character(LOTNO)) %>% 
+  mutate(LOTNO = factor(LOTNO)) %>% 
+  mutateAucValues()
+
+plot_range(sample_kilns_c)
+```
+
+## D
+
+```{r}
+# random sample of LOTNOs
+set.seed(15)
+n_kilns <- sample_n(all_kilns %>% dplyr::filter(kiln == "D"), 16) %>% dplyr::select(LOTNO) %>% unlist()
+
+sample_kilns_d <- all_kilns %>% 
+  dplyr::filter(LOTNO %in% n_kilns) %>% 
+  mutate(LOTNO = as.character(LOTNO)) %>% 
+  mutate(LOTNO = factor(LOTNO)) %>% 
+  mutateAucValues()
+
+plot_range(sample_kilns_d)
+```
+
+## E
+
+```{r}
+# random sample of LOTNOs
+set.seed(76)
+n_kilns <- sample_n(all_kilns %>% dplyr::filter(kiln == "E"), 16) %>% dplyr::select(LOTNO) %>% unlist()
+
+sample_kilns_e <- all_kilns %>% 
+  dplyr::filter(LOTNO %in% n_kilns) %>% 
+  mutate(LOTNO = as.character(LOTNO)) %>% 
+  mutate(LOTNO = factor(LOTNO)) %>% 
+  mutateAucValues()
+
+plot_range(sample_kilns_e)
+```
+
+## F
+
+```{r}
+# random sample of LOTNOs
+set.seed(15)
+n_kilns <- sample_n(all_kilns %>% dplyr::filter(kiln == "F"), 16) %>% dplyr::select(LOTNO) %>% unlist()
+
+sample_kilns_f <- all_kilns %>% 
+  dplyr::filter(LOTNO %in% n_kilns) %>% 
+  mutate(LOTNO = as.character(LOTNO)) %>% 
+  mutate(LOTNO = factor(LOTNO)) %>% 
+  mutateAucValues()
+
+plot_range(sample_kilns_f)
+```
+
+## G
+
+```{r}
+# random sample of LOTNOs
+set.seed(15)
+n_kilns <- sample_n(all_kilns %>% dplyr::filter(kiln == "G"), 16) %>% dplyr::select(LOTNO) %>% unlist()
+
+sample_kilns_g <- all_kilns %>% 
+  dplyr::filter(LOTNO %in% n_kilns) %>% 
+  mutate(LOTNO = as.character(LOTNO)) %>% 
+  mutate(LOTNO = factor(LOTNO)) %>% 
+  mutateAucValues()
+
+plot_range(sample_kilns_g)
+```
+
+## H
+
+```{r}
+# random sample of LOTNOs
+set.seed(15)
+n_kilns <- sample_n(all_kilns %>% dplyr::filter(kiln == "H"), 16) %>% dplyr::select(LOTNO) %>% unlist()
+
+sample_kilns_h <- all_kilns %>% 
+  dplyr::filter(LOTNO %in% n_kilns) %>% 
+  mutate(LOTNO = as.character(LOTNO)) %>% 
+  mutate(LOTNO = factor(LOTNO)) %>% 
+  mutateAucValues()
+
+plot_range(sample_kilns_h)
+```
+
+
+# AUC Calculations {.tabset}
+
+One measure mentioned to have potential importance in defect rate is variation between **setpoint** and **average kiln temperature** in the 400°C to 600°C range. An algorithm takes the absolute value of the difference between the values, and adds them together to produce a new feature, displayed below.    
+
+## AUC
 
 Base plot of temperature and setpoint over time, with green area representing the claculated area between the two curves. Numeric values also printed for comparison.  
 
 ```{r}
-plotAucValues(sample_kilns)
+plotAucValues(sample_kilns, x.nudge = 900, y.nudge = 0)
 ```
 
-### Cropped, labeled
+## Cropped
 
 ```{r}
-plotAucValues(sample_kilns, crop=T)
+plotAucValues(sample_kilns, crop=T, x.nudge = 0, y.nudge = 200)
 ```
 
-### Cropped, unlabeled
+## Cropped, unlabeled
 
 ```{r}
 plotAucValues(sample_kilns, crop=T, free.x=T)
 ```
 
 
+
+
+
+
+
+# AUC Analysis {.tabset}
+
+## Boxplot
+
+As could be seen in the above plots, some kilns exhibit far more variation than others. The below boxplot shows the kilns G and H have by far the most consistent operation.  
+
+```{r}
+df_merged_auc %>% 
+  group_by(LOTNO) %>% slice(1) %>% 
+  mutate(KILN2 = str_replace(KILN, "R", "")) %>% 
+  # ggplot(aes(x=aucDiff, y=fct_reorder(KILN,aucDiff), fill =KILN2))+
+  ggplot(aes(x=aucDiff, y=fct_reorder(KILN2,aucDiff)))+
+  geom_boxplot(outlier.alpha = 0,
+               outlier.shape = 21)+
+  geom_jitter(height = .2, alpha=.1)+
+  labs(title = "Setpoint vs temperature variation between kilns")+
+  xlab("Area between curves")+
+  ylab("Kiln")+
+  theme(legend.position = 'none')+
+  scale_x_continuous(labels = scales::label_number())
+```
+
+## Density
+
+Most of the distributions are not distributed normally.
+
+```{r}
+df_yields_auc %>% 
+  mutate(KILN2 = str_replace(KILN, "R", "")) %>% 
+  ggplot(aes(x=aucDiff, y = ..count../sum(..count..)))+
+  geom_density()+
+  scale_y_continuous(labels = scales::percent_format())+
+  scale_x_continuous(labels = scales::number_format(scale=1e-3, suffix='K'))+
+  facet_wrap(~KILN2, scales='free')
+  # facet_wrap(~KILN2)
+
+```
 

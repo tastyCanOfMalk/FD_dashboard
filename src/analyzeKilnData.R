@@ -1,23 +1,12 @@
-library(tidyverse)
-
-source("src/kilnFunctions.R")
-source("src/userFunctions.R")
 
 rm(list = ls())
 
 # load stuff
-# extrafont::loadfonts(device="win")
-# library(hrbrthemes)
 library(ggplot2)
-# library(extrafont)
-# loadfonts(device = "postscript")
 library(tidyverse)
 library(plotly)
-# library(silgelib)
 
-# theme_set(theme_minimal(base_family = "IBM Plex Sans"))
 theme_set(theme_minimal())
-# theme_set(theme_plex())
 
 source("src/kilnFunctions.R")
 source("src/userFunctions.R")
@@ -72,10 +61,10 @@ all_kilns <- bind_rows(
   kilns_H %>%  dplyr::select(time, setpoint, avg_kiln_temp, LOTNO, auc_min, auc_max)
 )
 
-# random sample of LOTNOs
 set.seed(5)
-n_kilns <- sample_n(all_kilns, 12) %>% dplyr::select(LOTNO) %>% unlist()
+n_kilns <- sample_n(all_kilns, 16) %>% dplyr::select(LOTNO) %>% unlist()
 
+# random sample of LOTNOs -------------------------------------------------
 sample_kilns <- all_kilns %>% 
   dplyr::filter(LOTNO %in% n_kilns) %>% 
   mutate(LOTNO = as.character(LOTNO)) %>% 
@@ -105,12 +94,13 @@ df_merged_auc %>%
   theme(legend.position = 'none')+
   scale_x_continuous(labels = scales::label_number())
 
-
-# does AUC value impact overall lot yields? -------------------------------
+# definitely not normal distribution --------------------------------------
 df_yields_auc %>% 
   mutate(KILN2 = str_replace(KILN, "R", "")) %>% 
-  ggplot(aes(x=aucDiff))+
+  ggplot(aes(x=aucDiff, y = ..count../sum(..count..)))+
   geom_density()+
+  scale_y_continuous(labels = scales::percent_format())+
+  scale_x_continuous(labels = scales::number_format(scale=1e-3, suffix='K'))+
   facet_wrap(~KILN2, scales='free')
 
 library(ggpubr)  
@@ -120,10 +110,11 @@ ggqqplot(df_yields_auc[df_yields_auc$KILN == "C",]$aucDiff)
 ggqqplot(df_yields_auc[df_yields_auc$KILN == "D",]$aucDiff)
 ggqqplot(df_yields_auc[df_yields_auc$KILN == "E",]$aucDiff)
 
-
-  
+# does AUC value impact overall lot yields? -------------------------------
+library(ggpointdensity)
+library(viridis)
 df_yields_auc %>% 
-  group_by(LOTNO, KILN, aucDiff, temp_avg, precip, snow_fall) %>% 
+  group_by(LOTNO, KILN, aucDiff, temp_avg, precip, snow_fall, snow_depth) %>% 
   dplyr::summarise(
     total_fired = sum(TOTAL_ITEM_FIRED),
     total_rejected = sum(TOTAL_ITEM_REJECTED),
@@ -132,8 +123,11 @@ df_yields_auc %>%
   mutate(KILN2 = str_replace(KILN, "R", "")) %>% 
   ggplot(aes(x=pct_lot_yield, y=aucDiff))+
   # ggplot(aes(x=aucDiff, y=pct_lot_yield))+
-  geom_point(alpha=.2)+
-  facet_wrap(~KILN2, scales='free_x')
+  geom_pointdensity(alpha=.8, size=1)+
+  scale_x_continuous(limits = c(0,1),labels = scales::percent_format())+
+  scale_y_continuous(labels = scales::number_format(scale=1e-3, suffix='K'))+
+  scale_color_viridis_c()+
+  facet_wrap(~KILN2, scales='free_y')
 
 
 

@@ -164,11 +164,12 @@ plot_range <- function(df = kilns_AB,
                        end = 25,
                        filter = NA,
                        plotly_on = FALSE,
-                       splices = FALSE){
+                       splices = FALSE,
+                       lot_compare = FALSE){
   
   lotno_levels = levels(unlist(df %>% dplyr::select(LOTNO)))
   
-  if(is.na(filter) & !splices & !plotly_on){
+  if(is.na(filter) & !splices & !plotly_on & !lot_compare){
     df %>% 
       dplyr::filter(LOTNO %in% lotno_levels[start:end]) %>% 
       group_by(LOTNO) %>% 
@@ -182,6 +183,22 @@ plot_range <- function(df = kilns_AB,
             axis.text.y=element_blank(),
             axis.ticks.y=element_blank())
       # facet_wrap(~LOTNO, scales = "free")
+  }
+  else if(is.na(filter) & !splices & !plotly_on & lot_compare){
+    df %>% 
+      dplyr::filter(LOTNO %in% lotno_levels[start:end]) %>% 
+      group_by(LOTNO) %>% 
+      ggplot(aes(x=time, y=avg_kiln_temp, color = kiln))+
+      geom_point(size = .8)+
+      geom_line(aes(y= setpoint), color = 'black')+
+      theme(legend.position = "none")+
+      facet_wrap(~LOTNO)+
+      theme(axis.text.x=element_blank(),
+            axis.ticks.x=element_blank(),
+            axis.text.y=element_blank(),
+            axis.ticks.y=element_blank())+
+      scale_color_brewer(palette = 'Set1')
+    # facet_wrap(~LOTNO, scales = "free")
   }
   else if(is.na(filter) & splices & !plotly_on){
     df %>% 
@@ -320,7 +337,10 @@ plotAucValues <- function(df = kilns_AB,
                           crop = FALSE, 
                           filter = NA, 
                           text.size = 3.5,
-                          free.x = FALSE){
+                          free.x = FALSE,
+                          y.nudge = 0,
+                          x.nudge = 0,
+                          labels = TRUE){
   
   # Returns plots with shaded region where AUC is calculated,
   #   allows quick comparison and verification of numbers
@@ -379,7 +399,9 @@ plotAucValues <- function(df = kilns_AB,
                 vjust = "inward", hjust="inward",
                 fontface = 'bold',
                 color='red',
-                size = text.size) +
+                size = text.size,
+                nudge_x = x.nudge,
+                nudge_y = y.nudge) +
       scale_y_continuous(breaks = seq(200, 1000, 200))+
       # theme_minimal()+
       facet_wrap(~LOTNO)+
@@ -399,7 +421,9 @@ plotAucValues <- function(df = kilns_AB,
                     label = mynumber(aucDiff)), 
                 fontface = 'bold',
                 color = "red", 
-                size = text.size) +
+                size = text.size,
+                nudge_x = x.nudge,
+                nudge_y = y.nudge) +
       scale_y_continuous(breaks = seq(0, 5000, 1000))+
       scale_x_continuous(breaks = seq(0, 5000, 1000))+
       # theme_minimal()+
@@ -434,7 +458,9 @@ plotAucValues <- function(df = kilns_AB,
                     label = mynumber(aucDiff)), 
                 fontface = 'bold',
                 color = "red", 
-                size = text.size) +
+                size = text.size,
+                nudge_x = x.nudge,
+                nudge_y = y.nudge) +
       scale_y_continuous(breaks = seq(0, 5000, 1000))+
       scale_x_continuous(breaks = seq(0, 5000, 1000))+
       # theme_minimal()+
