@@ -17,7 +17,7 @@ knitr::opts_chunk$set(echo    = TRUE,
                       message = FALSE,
                       warning = FALSE,
                       cache   = TRUE,
-                      fig.width = 8, fig.height = 5,
+                      fig.width = 8, fig.height = 6,
                       dpi = 180)
 rm(list = ls())
 
@@ -345,7 +345,8 @@ df <- df %>%
   mutate(kiln_cor = factor(paste0(KILN2, " (", round(cor,3), ")")))
 
 df %>% 
-  ggplot(aes(x=pct_lot_yield, y=aucDiff))+
+  ggplot(aes(x=aucDiff, y=pct_lot_yield))+
+  # ggplot(aes(x=pct_lot_yield, y=aucDiff))+
   geom_pointdensity(alpha=.8, size=1)+
   scale_x_continuous(limits = c(0,1),labels = scales::percent_format())+
   scale_y_continuous(labels = scales::number_format(scale=1e-3, suffix='K'))+
@@ -374,7 +375,8 @@ Trendline added.
 
 ```{r}
 df %>% 
-  ggplot(aes(x=pct_lot_yield, y=aucDiff))+
+  # ggplot(aes(x=pct_lot_yield, y=aucDiff))+
+  ggplot(aes(x=aucDiff, y=pct_lot_yield))+
   geom_pointdensity(alpha=.8, size=1)+
   geom_smooth(alpha=.1, color = 'red')+
   scale_x_continuous(limits = c(0,1),labels = scales::percent_format())+
@@ -410,7 +412,8 @@ df <- df %>%
   mutate(kiln_cor = factor(paste0(KILN2, " (", round(cor,3), ")")))
 
 df %>% 
-  ggplot(aes(x=pct_lot_yield, y=aucDiff))+
+  # ggplot(aes(x=pct_lot_yield, y=aucDiff))+
+  ggplot(aes(x=aucDiff, y=pct_lot_yield))+
   geom_pointdensity(alpha=.8, size=1)+
   scale_x_continuous(limits = c(0.8,1),labels = scales::percent_format())+
   scale_y_continuous(labels = scales::number_format(scale=1e-3, suffix='K'))+
@@ -461,7 +464,7 @@ df <- df %>%
 
 # plot
 df %>% 
-  ggplot(aes(x=total_item_pct_yield, y=aucDiff))+
+  ggplot(aes(x=aucDiff, y=total_item_pct_yield))+
   # geom_point()+
   # geom_bin2d()+
   # stat_density_2d(aes(fill=..level..))+
@@ -523,7 +526,7 @@ df <- df %>%
 
 # plot
 df %>% 
-  ggplot(aes(x=total_item_pct_yield, y=aucDiff))+
+  ggplot(aes(x=aucDiff, y=total_item_pct_yield))+
   # geom_point()+
   # geom_bin2d()+
   # stat_density_2d(aes(fill=..level..))+
@@ -586,7 +589,7 @@ df <- df %>%
 
 # plot
 df %>% 
-  ggplot(aes(x=total_item_pct_yield, y=aucDiff))+
+  ggplot(aes(x=aucDiff, y=total_item_pct_yield))+
   # geom_point()+
   # geom_bin2d()+
   # stat_density_2d(aes(fill=..level..))+
@@ -649,7 +652,7 @@ df <- df %>%
 
 # plot
 df %>% 
-  ggplot(aes(x=total_item_pct_yield, y=aucDiff))+
+  ggplot(aes(x=aucDiff, y=total_item_pct_yield))+
   # geom_point()+
   # geom_bin2d()+
   # stat_density_2d(aes(fill=..level..))+
@@ -712,7 +715,7 @@ df <- df %>%
 
 # plot
 df %>% 
-  ggplot(aes(x=total_item_pct_yield, y=aucDiff))+
+  ggplot(aes(x=aucDiff, y=total_item_pct_yield))+
   # geom_point()+
   # geom_bin2d()+
   # stat_density_2d(aes(fill=..level..))+
@@ -775,7 +778,7 @@ df <- df %>%
 
 # plot
 df %>% 
-  ggplot(aes(x=total_item_pct_yield, y=aucDiff))+
+  ggplot(aes(x=aucDiff, y=total_item_pct_yield))+
   # geom_point()+
   # geom_bin2d()+
   # stat_density_2d(aes(fill=..level..))+
@@ -838,7 +841,7 @@ df <- df %>%
 
 # plot
 df %>% 
-  ggplot(aes(x=total_item_pct_yield, y=aucDiff))+
+  ggplot(aes(x=aucDiff, y=total_item_pct_yield))+
   # geom_point()+
   # geom_bin2d()+
   # stat_density_2d(aes(fill=..level..))+
@@ -901,7 +904,7 @@ df <- df %>%
 
 # plot
 df %>% 
-  ggplot(aes(x=total_item_pct_yield, y=aucDiff))+
+  ggplot(aes(x=aucDiff, y=total_item_pct_yield))+
   # geom_point()+
   # geom_bin2d()+
   # stat_density_2d(aes(fill=..level..))+
@@ -930,20 +933,23 @@ df %>%
 
 ```
 
-## CW %
+# Defect rates by defect cause {.tabset .tabset-pills .tabset-fade}
+
+## CW
 
 Does AUC effect the occurrence of cracked webs of an item, on a per lot, per kiln basis (remember we cannot compare kilns to one another at this point due to the varying value distributions between them)?
 
 ```{r}
-# how many %CW per lot?
-df <- df_merged_auc %>% 
+# get lot fired total
+df <- df_merged_auc %>%
+  # lump kilns
   mutate(KILN2 = str_replace(KILN, "R", "")) %>% 
   mutate(reject_count_single_row = reject_vol_single_row_D * vol_piece) %>% 
-  # get lot fired total
   group_by(LOTNO) %>% 
   dplyr::summarise(total_lot_count_fired = sum(total_item_count_fired_D)) %>% 
   right_join(df_merged_auc)
-  # get CW defect total
+
+# get defects total
 df <- df %>% 
   group_by(LOTNO, CAUSE) %>%
   dplyr::summarise(total_defect_count_per_lot = sum(total_item_count_rejected_D)) %>% 
@@ -953,6 +959,7 @@ df <- df %>%
   dplyr::select(LOTNO, CAUSE, total_lot_count_fired, total_defect_count_per_lot, aucDiff) %>% 
   mutate(pct_defect = 1 - (total_lot_count_fired - total_defect_count_per_lot)  / total_lot_count_fired )
   
+# fill missing values
 pct_defect_by_lot <- df %>% 
   pivot_wider(id_cols     = LOTNO, 
               names_from  = CAUSE, 
@@ -968,20 +975,359 @@ pct_defect_by_lot <- pct_defect_by_lot %>%
       mutate(KILN = str_replace(KILN, "R", "")) %>% 
       group_by(LOTNO) %>% slice(1) %>% 
       dplyr::select(LOTNO, KILN, aucDiff)
-  )
+  ) %>% 
+  set_colnames(c("LOTNO", "CAUSE", "defect_pct", "KILN", "aucDiff")) %>% 
+  mutate_if(is.character, factor)
+
+# for CW, what is the relationship between KILN and aucDiff?
+def = "CW"
 
 pct_defect_by_lot %>%
-  mutate_if(is.character, factor) %>% 
-  dplyr::filter(name == "CW") %>% 
-  ggplot(aes(y=value, x=aucDiff))+
+  dplyr::filter(CAUSE == def) %>% 
+  group_by(KILN) %>%
+  dplyr::summarise(cor = cor(defect_pct, aucDiff)) %>%
+  # arrange(-cor) %>%
+  right_join(pct_defect_by_lot %>%
+               dplyr::filter(CAUSE == def)) %>% 
+  dplyr::mutate(kiln_cor = paste0(KILN, " (", round(cor,2), ")")) %>%
+  ggplot(aes(y=defect_pct, x=aucDiff))+
   geom_smooth(alpha=.2)+
   geom_pointdensity()+
   scale_color_viridis_c()+
-  facet_wrap(~KILN,scales='free_x')+
+  facet_wrap(~kiln_cor,scales='free_x')+
   scale_x_continuous(labels = scales::number_format(scale=1e-3, suffix='K'))+
-  scale_y_continuous(labels = scales::percent_format(), limits = c(0,.15))
+  scale_y_continuous(labels = scales::percent_format(), limits = c(0,.15))+
+  labs(
+    title = paste0(def, " defect rate per lot vs AUC"),
+    subtitle = "Correlation value (in parentheses)"
+  )+
+  xlab("Area between setpoint, kiln temp")+
+  ylab(paste0(def, " defect rate"))+
+  theme(legend.position = 'none')
 ```
 
+## BE
 
+```{r}
+def = "BE"
 
-## BW %
+pct_defect_by_lot %>%
+  dplyr::filter(CAUSE == def) %>% 
+  group_by(KILN) %>%
+  dplyr::summarise(cor = cor(defect_pct, aucDiff)) %>%
+  # arrange(-cor) %>%
+  right_join(pct_defect_by_lot %>%
+               dplyr::filter(CAUSE == def)) %>% 
+  dplyr::mutate(kiln_cor = paste0(KILN, " (", round(cor,2), ")")) %>%
+  ggplot(aes(y=defect_pct, x=aucDiff))+
+  geom_smooth(alpha=.2)+
+  geom_pointdensity()+
+  scale_color_viridis_c()+
+  facet_wrap(~kiln_cor,scales='free_x')+
+  scale_x_continuous(labels = scales::number_format(scale=1e-3, suffix='K'))+
+  scale_y_continuous(labels = scales::percent_format(), limits = c(0,.2))+
+  labs(
+    title = paste0(def, " defect rate per lot vs AUC"),
+    subtitle = "Correlation value (in parentheses)"
+  )+
+  xlab("Area between setpoint, kiln temp")+
+  ylab(paste0(def, " defect rate"))+
+  theme(legend.position = 'none')
+
+```
+
+## DC
+
+```{r}
+def = "DC"
+
+pct_defect_by_lot %>%
+  dplyr::filter(CAUSE == def) %>% 
+  group_by(KILN) %>%
+  dplyr::summarise(cor = cor(defect_pct, aucDiff)) %>%
+  # arrange(-cor) %>%
+  right_join(pct_defect_by_lot %>%
+               dplyr::filter(CAUSE == def)) %>% 
+  dplyr::mutate(kiln_cor = paste0(KILN, " (", round(cor,2), ")")) %>%
+  ggplot(aes(y=defect_pct, x=aucDiff))+
+  geom_smooth(alpha=.2)+
+  geom_pointdensity()+
+  scale_color_viridis_c()+
+  facet_wrap(~kiln_cor, scales = 'free')+
+  scale_x_continuous(labels = scales::number_format(scale=1e-3, suffix='K'))+
+  scale_y_continuous(labels = scales::percent_format(), limits = c(0,.1))+
+  labs(
+    title = paste0(def, " defect rate per lot vs AUC"),
+    subtitle = "Correlation value (in parentheses)"
+  )+
+  xlab("Area between setpoint, kiln temp")+
+  ylab(paste0(def, " defect rate"))+
+  theme(legend.position = 'none')
+
+```
+
+# Defect rates by kiln {.tabset .tabset-pills .tabset-fade}
+
+## A
+
+```{r}
+# for each kiln, compare the defect rate vs AUC for each cause
+kil = "A"
+
+pct_defect_by_lot %>%
+  dplyr::filter(KILN == kil) %>% 
+  group_by(CAUSE) %>%
+  dplyr::summarise(cor = cor(defect_pct, aucDiff),
+                   cor = ifelse(is.na(cor), 0, cor)) %>%
+  # arrange(-cor) %>%
+  right_join(pct_defect_by_lot %>%
+               dplyr::filter(KILN == kil)) %>% 
+  dplyr::mutate(cause_cor = paste0(CAUSE, " (", round(cor,2), ")")) %>%
+  ggplot(aes(y=defect_pct, x=aucDiff))+
+  geom_smooth(alpha=.2)+
+  geom_pointdensity(adjust = .2)+
+  scale_color_viridis_c()+
+  facet_wrap(~cause_cor, scales='free')+
+  scale_x_continuous(labels = scales::number_format(scale=1e-3, suffix='K'))+
+  scale_y_continuous(labels = scales::percent_format())+
+  # scale_y_continuous(labels = scales::percent_format(), limits = c(0,.06))+
+  labs(
+    title = paste0("Kiln ", kil, " defect rate per defect vs AUC"),
+    subtitle = "Correlation value (in parentheses)"
+  )+
+  xlab("Area between setpoint, kiln temp")+
+  ylab(paste0("Defect rate"))+
+  theme(legend.position = 'none')
+
+```
+
+## B
+
+```{r}
+# for each kiln, compare the defect rate vs AUC for each cause
+kil = "B"
+
+pct_defect_by_lot %>%
+  dplyr::filter(KILN == kil) %>% 
+  group_by(CAUSE) %>%
+  dplyr::summarise(cor = cor(defect_pct, aucDiff),
+                   cor = ifelse(is.na(cor), 0, cor)) %>%
+  # arrange(-cor) %>%
+  right_join(pct_defect_by_lot %>%
+               dplyr::filter(KILN == kil)) %>% 
+  dplyr::mutate(cause_cor = paste0(CAUSE, " (", round(cor,2), ")")) %>%
+  ggplot(aes(y=defect_pct, x=aucDiff))+
+  geom_smooth(alpha=.2)+
+  geom_pointdensity(adjust = .2)+
+  scale_color_viridis_c()+
+  facet_wrap(~cause_cor, scales='free')+
+  scale_x_continuous(labels = scales::number_format(scale=1e-3, suffix='K'))+
+  scale_y_continuous(labels = scales::percent_format())+
+  # scale_y_continuous(labels = scales::percent_format(), limits = c(0,.06))+
+  labs(
+    title = paste0("Kiln ", kil, " defect rate per defect vs AUC"),
+    subtitle = "Correlation value (in parentheses)"
+  )+
+  xlab("Area between setpoint, kiln temp")+
+  ylab(paste0("Defect rate"))+
+  theme(legend.position = 'none')
+
+```
+
+## C
+
+```{r}
+# for each kiln, compare the defect rate vs AUC for each cause
+kil = "C"
+
+pct_defect_by_lot %>%
+  dplyr::filter(KILN == kil) %>% 
+  group_by(CAUSE) %>%
+  dplyr::summarise(cor = cor(defect_pct, aucDiff),
+                   cor = ifelse(is.na(cor), 0, cor)) %>%
+  # arrange(-cor) %>%
+  right_join(pct_defect_by_lot %>%
+               dplyr::filter(KILN == kil)) %>% 
+  dplyr::mutate(cause_cor = paste0(CAUSE, " (", round(cor,2), ")")) %>%
+  ggplot(aes(y=defect_pct, x=aucDiff))+
+  geom_smooth(alpha=.2)+
+  geom_pointdensity(adjust = .2)+
+  scale_color_viridis_c()+
+  facet_wrap(~cause_cor, scales='free')+
+  scale_x_continuous(labels = scales::number_format(scale=1e-3, suffix='K'))+
+  scale_y_continuous(labels = scales::percent_format())+
+  # scale_y_continuous(labels = scales::percent_format(), limits = c(0,.06))+
+  labs(
+    title = paste0("Kiln ", kil, " defect rate per defect vs AUC"),
+    subtitle = "Correlation value (in parentheses)"
+  )+
+  xlab("Area between setpoint, kiln temp")+
+  ylab(paste0("Defect rate"))+
+  theme(legend.position = 'none')
+
+```
+
+## D
+
+```{r}
+# for each kiln, compare the defect rate vs AUC for each cause
+kil = "D"
+
+pct_defect_by_lot %>%
+  dplyr::filter(KILN == kil) %>% 
+  group_by(CAUSE) %>%
+  dplyr::summarise(cor = cor(defect_pct, aucDiff),
+                   cor = ifelse(is.na(cor), 0, cor)) %>%
+  # arrange(-cor) %>%
+  right_join(pct_defect_by_lot %>%
+               dplyr::filter(KILN == kil)) %>% 
+  dplyr::mutate(cause_cor = paste0(CAUSE, " (", round(cor,2), ")")) %>%
+  ggplot(aes(y=defect_pct, x=aucDiff))+
+  geom_smooth(alpha=.2)+
+  geom_pointdensity(adjust = .2)+
+  scale_color_viridis_c()+
+  facet_wrap(~cause_cor, scales='free')+
+  scale_x_continuous(labels = scales::number_format(scale=1e-3, suffix='K'))+
+  scale_y_continuous(labels = scales::percent_format())+
+  # scale_y_continuous(labels = scales::percent_format(), limits = c(0,.06))+
+  labs(
+    title = paste0("Kiln ", kil, " defect rate per defect vs AUC"),
+    subtitle = "Correlation value (in parentheses)"
+  )+
+  xlab("Area between setpoint, kiln temp")+
+  ylab(paste0("Defect rate"))+
+  theme(legend.position = 'none')
+
+```
+
+## E
+
+```{r}
+# for each kiln, compare the defect rate vs AUC for each cause
+kil = "E"
+
+pct_defect_by_lot %>%
+  dplyr::filter(KILN == kil) %>% 
+  group_by(CAUSE) %>%
+  dplyr::summarise(cor = cor(defect_pct, aucDiff),
+                   cor = ifelse(is.na(cor), 0, cor)) %>%
+  # arrange(-cor) %>%
+  right_join(pct_defect_by_lot %>%
+               dplyr::filter(KILN == kil)) %>% 
+  dplyr::mutate(cause_cor = paste0(CAUSE, " (", round(cor,2), ")")) %>%
+  ggplot(aes(y=defect_pct, x=aucDiff))+
+  geom_smooth(alpha=.2)+
+  geom_pointdensity(adjust = .2)+
+  scale_color_viridis_c()+
+  facet_wrap(~cause_cor, scales='free')+
+  scale_x_continuous(labels = scales::number_format(scale=1e-3, suffix='K'))+
+  scale_y_continuous(labels = scales::percent_format())+
+  # scale_y_continuous(labels = scales::percent_format(), limits = c(0,.06))+
+  labs(
+    title = paste0("Kiln ", kil, " defect rate per defect vs AUC"),
+    subtitle = "Correlation value (in parentheses)"
+  )+
+  xlab("Area between setpoint, kiln temp")+
+  ylab(paste0("Defect rate"))+
+  theme(legend.position = 'none')
+
+```
+
+## F
+
+```{r}
+# for each kiln, compare the defect rate vs AUC for each cause
+kil = "F"
+
+pct_defect_by_lot %>%
+  dplyr::filter(KILN == kil) %>% 
+  group_by(CAUSE) %>%
+  dplyr::summarise(cor = cor(defect_pct, aucDiff),
+                   cor = ifelse(is.na(cor), 0, cor)) %>%
+  # arrange(-cor) %>%
+  right_join(pct_defect_by_lot %>%
+               dplyr::filter(KILN == kil)) %>% 
+  dplyr::mutate(cause_cor = paste0(CAUSE, " (", round(cor,2), ")")) %>%
+  ggplot(aes(y=defect_pct, x=aucDiff))+
+  geom_smooth(alpha=.2)+
+  geom_pointdensity(adjust = .2)+
+  scale_color_viridis_c()+
+  facet_wrap(~cause_cor, scales='free')+
+  scale_x_continuous(labels = scales::number_format(scale=1e-3, suffix='K'))+
+  scale_y_continuous(labels = scales::percent_format())+
+  # scale_y_continuous(labels = scales::percent_format(), limits = c(0,.06))+
+  labs(
+    title = paste0("Kiln ", kil, " defect rate per defect vs AUC"),
+    subtitle = "Correlation value (in parentheses)"
+  )+
+  xlab("Area between setpoint, kiln temp")+
+  ylab(paste0("Defect rate"))+
+  theme(legend.position = 'none')
+
+```
+
+## G
+
+```{r}
+# for each kiln, compare the defect rate vs AUC for each cause
+kil = "G"
+
+pct_defect_by_lot %>%
+  dplyr::filter(KILN == kil) %>% 
+  group_by(CAUSE) %>%
+  dplyr::summarise(cor = cor(defect_pct, aucDiff),
+                   cor = ifelse(is.na(cor), 0, cor)) %>%
+  # arrange(-cor) %>%
+  right_join(pct_defect_by_lot %>%
+               dplyr::filter(KILN == kil)) %>% 
+  dplyr::mutate(cause_cor = paste0(CAUSE, " (", round(cor,2), ")")) %>%
+  ggplot(aes(y=defect_pct, x=aucDiff))+
+  geom_smooth(alpha=.2)+
+  geom_pointdensity(adjust = .2)+
+  scale_color_viridis_c()+
+  facet_wrap(~cause_cor, scales='free')+
+  scale_x_continuous(labels = scales::number_format(scale=1e-3, suffix='K'))+
+  scale_y_continuous(labels = scales::percent_format())+
+  # scale_y_continuous(labels = scales::percent_format(), limits = c(0,.06))+
+  labs(
+    title = paste0("Kiln ", kil, " defect rate per defect vs AUC"),
+    subtitle = "Correlation value (in parentheses)"
+  )+
+  xlab("Area between setpoint, kiln temp")+
+  ylab(paste0("Defect rate"))+
+  theme(legend.position = 'none')
+
+```
+
+## H
+
+```{r}
+# for each kiln, compare the defect rate vs AUC for each cause
+kil = "H"
+
+pct_defect_by_lot %>%
+  dplyr::filter(KILN == kil) %>% 
+  group_by(CAUSE) %>%
+  dplyr::summarise(cor = cor(defect_pct, aucDiff),
+                   cor = ifelse(is.na(cor), 0, cor)) %>%
+  # arrange(-cor) %>%
+  right_join(pct_defect_by_lot %>%
+               dplyr::filter(KILN == kil)) %>% 
+  dplyr::mutate(cause_cor = paste0(CAUSE, " (", round(cor,2), ")")) %>%
+  ggplot(aes(y=defect_pct, x=aucDiff))+
+  geom_smooth(alpha=.2)+
+  geom_pointdensity(adjust = .2)+
+  scale_color_viridis_c()+
+  facet_wrap(~cause_cor, scales='free')+
+  scale_x_continuous(labels = scales::number_format(scale=1e-3, suffix='K'))+
+  scale_y_continuous(labels = scales::percent_format())+
+  # scale_y_continuous(labels = scales::percent_format(), limits = c(0,.06))+
+  labs(
+    title = paste0("Kiln ", kil, " defect rate per defect vs AUC"),
+    subtitle = "Correlation value (in parentheses)"
+  )+
+  xlab("Area between setpoint, kiln temp")+
+  ylab(paste0("Defect rate"))+
+  theme(legend.position = 'none')
+
+```
