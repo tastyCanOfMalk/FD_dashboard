@@ -476,3 +476,61 @@ plotAucValues <- function(df = kilns_AB,
   }
   
 }
+
+kiln_plot_table <- function(kiln = "A", slice_end = 16){
+  
+  # yields df of kiln
+  df <- df_yields_auc %>% 
+    mutate(KILN2 = str_replace(KILN, "R", "")) %>% 
+    dplyr::filter(KILN2 == kiln)
+  
+  # get top items fired in kiln
+  df_items <- df %>% 
+    count(DESCRIPTION) %>% 
+    arrange(-n) %>% 
+    slice(1:slice_end)
+  
+  # filter original df for top items
+  df <- df %>% 
+    dplyr::filter(DESCRIPTION %in% df_items$DESCRIPTION)
+  
+  # get cor values and join to original
+  # df$DESCRIPTION <- gsub('[[:punct:]]', "", df$DESCRIPTION)
+  df <- df %>% 
+    group_by(DESCRIPTION) %>% 
+    dplyr::summarise(cor = round(cor(aucDiff, total_item_pct_yield),2)) %>%
+    left_join(df) %>% 
+    dplyr::select(DESCRIPTION, cor) %>% 
+    mutate(descr_cor = paste0(DESCRIPTION, " (", cor, ")")) %>% 
+    right_join(df)
+  
+  # plot
+  plot <- df %>% 
+    ggplot(aes(x=total_item_pct_yield, y=aucDiff))+
+    geom_pointdensity(alpha=.8, size=1)+
+    scale_x_continuous(limits = c(0,1),labels = scales::percent_format())+
+    scale_y_continuous(labels = scales::number_format(scale=1e-3, suffix='K'))+
+    scale_color_viridis_c()+
+    xlab('Lot yield')+
+    ylab('Area between curves')+
+    labs(title = paste('AUC versus item yields, Kiln', kiln))+
+    facet_wrap(~descr_cor, scales='free_y')+
+    theme(legend.position = 'none')
+  
+  # table
+  table <- df %>% 
+    count(cor, DESCRIPTION) %>% 
+    arrange(-abs(cor)) %>% 
+    mutate(
+      cor = cell_spec(round(cor,2), 'html', color= ifelse(cor < 0, 'red', 'black'))
+    ) %>% 
+    set_colnames(c("Correlation", "Description", "Observations")) %>% 
+    kable(format = 'html', escape = 'F') %>% 
+    kable_styling('striped',full_width = F)
+  
+  pt <- list(plot, table)
+  
+  return(pt)
+  
+}
+

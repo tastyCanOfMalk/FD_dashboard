@@ -5,6 +5,11 @@ rm(list = ls())
 library(ggplot2)
 library(tidyverse)
 library(plotly)
+library(ggpointdensity)
+library(viridis)
+library(magrittr)
+library(knitr)
+library(kableExtra)
 
 theme_set(theme_minimal())
 
@@ -113,7 +118,169 @@ ggqqplot(df_yields_auc[df_yields_auc$KILN == "E",]$aucDiff)
 # does AUC value impact overall lot yields? -------------------------------
 library(ggpointdensity)
 library(viridis)
-df_yields_auc %>% 
+
+# join correlation of AUC, lot yield to original DF and plot ---------
+df <- df_yields_auc %>% 
+  group_by(LOTNO, KILN, aucDiff, temp_avg, precip, snow_fall, snow_depth) %>% 
+  dplyr::summarise(
+    total_fired = sum(TOTAL_ITEM_FIRED),
+    total_rejected = sum(TOTAL_ITEM_REJECTED),
+    pct_lot_yield = (total_fired - total_rejected) / total_fired
+  ) %>% 
+  mutate(KILN2 = str_replace(KILN, "R", ""))
+df <- df %>% 
+  group_by(KILN2) %>% 
+  dplyr::summarise(cor = cor(pct_lot_yield, aucDiff)) %>% 
+  left_join(df) %>% 
+  mutate(kiln_cor = factor(paste0(KILN2, " (", round(cor,3), ")")))
+
+df %>% 
+  ggplot(aes(x=pct_lot_yield, y=aucDiff))+
+  geom_pointdensity(alpha=.8, size=1)+
+  # geom_smooth(alpha=.1, color = 'red')+
+  # stat_smooth(alpha=.1)+
+  scale_x_continuous(limits = c(0,1),labels = scales::percent_format())+
+  scale_y_continuous(labels = scales::number_format(scale=1e-3, suffix='K'))+
+  scale_color_viridis_c()+
+  facet_wrap(~kiln_cor, scales='free_y')+
+  xlab('Lot yield')+
+  ylab('Area between curves')+
+  labs(title = 'AUC versus entire lot yields',
+       subtitle = 'Correlation value (in parentheses)')+
+  theme(legend.position = 'none')
+
+# does AUC impact item yields within a kiln? -------------
+# yields df of kiln
+df <- df_yields_auc %>% 
+  mutate(KILN2 = str_replace(KILN, "R", "")) %>% 
+  dplyr::filter(KILN2 == "A")
+
+# get top items fired in kiln
+df_items <- df %>% 
+  count(DESCRIPTION) %>% 
+  arrange(-n) %>% 
+  slice(1:9)
+
+# filter original df for top items
+df <- df %>% 
+  dplyr::filter(DESCRIPTION %in% df_items$DESCRIPTION)
+
+# get cor values and join to original
+df_cor <- df %>% 
+  group_by(DESCRIPTION) %>% 
+  dplyr::summarise(cor = round(cor(aucDiff, total_item_pct_yield),2)) %>%
+  left_join(df) %>% 
+  dplyr::select(DESCRIPTION, cor) %>% 
+  group_by(DESCRIPTION) %>% slice(1)
+
+df <- df %>% 
+  left_join(df_cor) %>% 
+  mutate(descr_cor = paste0(DESCRIPTION, " (", cor, ")")) %>% 
+  right_join(df)
+
+# plot
+df %>% 
+  ggplot(aes(x=total_item_pct_yield, y=aucDiff))+
+  # geom_point()+
+  # geom_bin2d()+
+  # stat_density_2d(aes(fill=..level..))+
+  # stat_bin_hex()+
+  geom_pointdensity()+
+  scale_x_continuous(limits = c(0,1),labels = scales::percent_format())+
+  scale_y_continuous(labels = scales::number_format(scale=1e-3, suffix='K'))+
+  scale_color_viridis_c()+
+  xlab('Lot yield')+
+  ylab('Area between curves')+
+  labs(title = 'AUC versus item yields')+
+  # facet_wrap(~descr_cor)+
+  facet_wrap(~descr_cor, scales='free_y')+
+  theme(legend.position = 'none')
+
+# table
+df %>% 
+  count(cor, DESCRIPTION) %>% 
+  arrange(-abs(cor)) %>% 
+  mutate(
+    cor = cell_spec(round(cor,2), 'html', color= ifelse(cor < 0, 'red', 'black'))
+  ) %>% 
+  set_colnames(c("Correlation", "Description", "Observations")) %>% 
+  kable(format = 'html', escape = 'F') %>% 
+  kable_styling('striped',full_width = F)
+
+
+# AUC impact CW% ? --------------------------------------------------------
+
+# how many %CW per lot?
+df <- df_merged_auc %>% 
+  mutate(KILN2 = str_replace(KILN, "R", "")) %>% 
+  mutate(reject_count_single_row = reject_vol_single_row_D * vol_piece) %>% 
+  # get lot fired total
+  group_by(LOTNO) %>% 
+  dplyr::summarise(total_lot_count_fired = sum(total_item_count_fired_D)) %>% 
+  right_join(df_merged_auc)
+  # get CW defect total
+df <- df %>% 
+  group_by(LOTNO, CAUSE) %>%
+  dplyr::summarise(total_defect_count_per_lot = sum(total_item_count_rejected_D)) %>% 
+  right_join(df) %>% 
+  group_by(LOTNO, CAUSE) %>%
+  slice(1) %>% ungroup() %>%
+  dplyr::select(LOTNO, CAUSE, total_lot_count_fired, total_defect_count_per_lot, aucDiff) %>% 
+  mutate(pct_defect = 1 - (total_lot_count_fired - total_defect_count_per_lot)  / total_lot_count_fired )
+  
+pct_defect_by_lot <- df %>% 
+  pivot_wider(id_cols     = LOTNO, 
+              names_from  = CAUSE, 
+              values_from = pct_defect,
+              values_fill = 0)
+
+# join pct defect to aucDiff
+pct_defect_by_lot <- pct_defect_by_lot %>% 
+  pivot_longer(cols = BE:BIT) %>% 
+  # join to aucDiff 
+  left_join(
+    df_merged_auc %>% 
+      mutate(KILN = str_replace(KILN, "R", "")) %>% 
+      group_by(LOTNO) %>% slice(1) %>% 
+      dplyr::select(LOTNO, KILN, aucDiff)
+  )
+
+pct_defect_by_lot %>%
+  mutate_if(is.character, factor) %>% 
+  ggplot(aes(y=aucDiff, x=value))+
+  geom_pointdensity()+
+  scale_color_viridis_c()+
+  facet_wrap(~name,scales='free')
+
+pct_defect_by_lot %>%
+  mutate_if(is.character, factor) %>% 
+  dplyr::filter(name == "CW") %>% 
+  ggplot(aes(y=value, x=aucDiff))+
+  # ggplot(aes(y=aucDiff, x=value))+
+  geom_smooth()+
+  geom_pointdensity()+
+  scale_color_viridis_c()+
+  facet_wrap(~KILN,scales='free_x')+
+  scale_x_continuous(labels = scales::number_format(scale=1e-3, suffix='K'))+
+  scale_y_continuous(labels = scales::percent_format(), limits = c(0,.15))
+
+
+
+  group_by(LOTNO,CAUSE) %>% 
+  dplyr::summarise(defect_totals = sum(reject_count_single_row),
+                   total_items_fired = )
+  
+  
+  dplyr::filter(KILN2 == "A") %>% 
+  dplyr::select(LOTNO, KILN2, DESCRIPTION, CAUSE, TOTAL_ITEM_FIRED_Y:total_item_pct_yield_Y,aucDiff) %>%
+  group_by()
+  
+
+# does AUC impact occurences of certain defects within a kiln?
+
+
+# bin to quantile values --------
+df_G <- df_yields_auc %>% 
   group_by(LOTNO, KILN, aucDiff, temp_avg, precip, snow_fall, snow_depth) %>% 
   dplyr::summarise(
     total_fired = sum(TOTAL_ITEM_FIRED),
@@ -121,9 +288,36 @@ df_yields_auc %>%
     pct_lot_yield = (total_fired - total_rejected) / total_fired
     ) %>% 
   mutate(KILN2 = str_replace(KILN, "R", "")) %>% 
+  dplyr::filter(KILN2 == "G")
+  
+cut_G      <- bins.quantiles(df_G$pct_lot_yield, 6, 10)
+cut_G_vals <- bins.getvals(cut_G)
+
+df_G %>% 
+  mutate(pct_lot_yield_binned = case_when(
+    pct_lot_yield < cut_G_vals[[2]] ~ "F",
+    (pct_lot_yield >= cut_G_vals[[2]] & pct_lot_yield < cut_G_vals[[3]]) ~ "E",
+    (pct_lot_yield >= cut_G_vals[[3]] & pct_lot_yield < cut_G_vals[[4]]) ~ "D",
+    (pct_lot_yield >= cut_G_vals[[4]] & pct_lot_yield < cut_G_vals[[5]]) ~ "C",
+    (pct_lot_yield >= cut_G_vals[[5]] & pct_lot_yield < cut_G_vals[[6]]) ~ "B",
+    pct_lot_yield >= cut_G_vals[[6]] ~ "A",
+    TRUE ~ "error"
+  )) %>% 
+  ggplot(aes(x=aucDiff, y=pct_lot_yield_binned))+
+  geom_boxplot()
+  # coord_flip()
+
+
+
+
+
+
+a <- a %>% 
+  left_join(cut(a$pct_lot_yield, 4), by = LOTNO)
+
   ggplot(aes(x=pct_lot_yield, y=aucDiff))+
   # ggplot(aes(x=aucDiff, y=pct_lot_yield))+
-  geom_pointdensity(alpha=.8, size=1)+
+  geom_pointdensity(alpha=.8)+
   scale_x_continuous(limits = c(0,1),labels = scales::percent_format())+
   scale_y_continuous(labels = scales::number_format(scale=1e-3, suffix='K'))+
   scale_color_viridis_c()+
@@ -140,6 +334,11 @@ df_yields_auc %>%
 
 
 
+  
+  
+# overall look shows 
+  
+  
 # import data -------------------------------------------------------------
 df_merged <- read_csv("data/processed_data/df_merged.csv")
 
