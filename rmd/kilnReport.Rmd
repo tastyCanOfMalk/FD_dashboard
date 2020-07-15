@@ -932,6 +932,56 @@ df %>%
 
 ## CW %
 
-Does AUC effect the occurence of cracked webs of an item, on a per lot
+Does AUC effect the occurrence of cracked webs of an item, on a per lot, per kiln basis (remember we cannot compare kilns to one another at this point due to the varying value distributions between them)?
+
+```{r}
+# how many %CW per lot?
+df <- df_merged_auc %>% 
+  mutate(KILN2 = str_replace(KILN, "R", "")) %>% 
+  mutate(reject_count_single_row = reject_vol_single_row_D * vol_piece) %>% 
+  # get lot fired total
+  group_by(LOTNO) %>% 
+  dplyr::summarise(total_lot_count_fired = sum(total_item_count_fired_D)) %>% 
+  right_join(df_merged_auc)
+  # get CW defect total
+df <- df %>% 
+  group_by(LOTNO, CAUSE) %>%
+  dplyr::summarise(total_defect_count_per_lot = sum(total_item_count_rejected_D)) %>% 
+  right_join(df) %>% 
+  group_by(LOTNO, CAUSE) %>%
+  slice(1) %>% ungroup() %>%
+  dplyr::select(LOTNO, CAUSE, total_lot_count_fired, total_defect_count_per_lot, aucDiff) %>% 
+  mutate(pct_defect = 1 - (total_lot_count_fired - total_defect_count_per_lot)  / total_lot_count_fired )
+  
+pct_defect_by_lot <- df %>% 
+  pivot_wider(id_cols     = LOTNO, 
+              names_from  = CAUSE, 
+              values_from = pct_defect,
+              values_fill = 0)
+
+# join pct defect to aucDiff
+pct_defect_by_lot <- pct_defect_by_lot %>% 
+  pivot_longer(cols = BE:BIT) %>% 
+  # join to aucDiff 
+  left_join(
+    df_merged_auc %>% 
+      mutate(KILN = str_replace(KILN, "R", "")) %>% 
+      group_by(LOTNO) %>% slice(1) %>% 
+      dplyr::select(LOTNO, KILN, aucDiff)
+  )
+
+pct_defect_by_lot %>%
+  mutate_if(is.character, factor) %>% 
+  dplyr::filter(name == "CW") %>% 
+  ggplot(aes(y=value, x=aucDiff))+
+  geom_smooth(alpha=.2)+
+  geom_pointdensity()+
+  scale_color_viridis_c()+
+  facet_wrap(~KILN,scales='free_x')+
+  scale_x_continuous(labels = scales::number_format(scale=1e-3, suffix='K'))+
+  scale_y_continuous(labels = scales::percent_format(), limits = c(0,.15))
+```
+
+
 
 ## BW %

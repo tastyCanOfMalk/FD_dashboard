@@ -245,24 +245,37 @@ pct_defect_by_lot <- pct_defect_by_lot %>%
       dplyr::select(LOTNO, KILN, aucDiff)
   )
 
-pct_defect_by_lot %>%
-  mutate_if(is.character, factor) %>% 
-  ggplot(aes(y=aucDiff, x=value))+
-  geom_pointdensity()+
-  scale_color_viridis_c()+
-  facet_wrap(~name,scales='free')
+# # get cor, join
+# pct_defect_by_lot <- pct_defect_by_lot %>%
+#   group_by(name, KILN) %>%
+#   dplyr::summarise(cor = cor(value, aucDiff)) %>%
+#   arrange(-cor) %>%
+#   right_join(pct_defect_by_lot) %>%
+#   dplyr::mutate(name_cor = paste0(name, " (", cor, ")"))
 
 pct_defect_by_lot %>%
   mutate_if(is.character, factor) %>% 
   dplyr::filter(name == "CW") %>% 
+  group_by(KILN) %>%
+  dplyr::summarise(cor = cor(value, aucDiff)) %>%
+  # arrange(-cor) %>%
+  right_join(pct_defect_by_lot %>%
+               mutate_if(is.character, factor) %>% 
+               dplyr::filter(name == "CW")) %>% 
+  dplyr::mutate(kiln_cor = paste0(KILN, " (", round(cor,2), ")")) %>%
   ggplot(aes(y=value, x=aucDiff))+
-  # ggplot(aes(y=aucDiff, x=value))+
-  geom_smooth()+
+  geom_smooth(alpha=.2)+
   geom_pointdensity()+
   scale_color_viridis_c()+
   facet_wrap(~KILN,scales='free_x')+
   scale_x_continuous(labels = scales::number_format(scale=1e-3, suffix='K'))+
   scale_y_continuous(labels = scales::percent_format(), limits = c(0,.15))
+
+pct_defect_by_lot %>% 
+  group_by(name) %>% 
+  dplyr::summarise(a=median(value)*100) %>% 
+  arrange(-a)
+
 
 
 
