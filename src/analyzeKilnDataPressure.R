@@ -46,32 +46,114 @@ kilns_All <- bind_rows(kilns_AB[c(1:10,16,17)],
   # Time spent at positive pressure between 0 and 1000 minutes
   # Time when (0.01 < pressure < 0.03) but in what range? before maxtemp?
   # Area under positive pressure curve up to 1200F
+  # Area under negative pressure curve up to 1200F
+  # SD of pressure up to 1200F
+  # mean of pressure up to 1200F
+  # slope of pressure up to 1200F
 
-# check pressures ---------------------------------------------------------
+# PRESSURE setup  ---------------------------------------------------------
 
-test <- kilns_All[kilns_All$LOTNO == "061320H",]
+# set.seed(1)
+# 053018H (negative vals)
+# 022118H (pos and neg vals)
+# 110519H (pos/neg/in range.1.3)
+t_lot <- sample(levels(kilns_H$LOTNO),1)
+test <- kilns_All[kilns_All$LOTNO == t_lot,]
+
+test <- test %>% 
+  mutate(
+    
+    # Pressure positive and below 1000-minutes?
+    pos_pres_1000 = case_when(
+      pressure <= 0 ~ FALSE,
+      (pressure > 0) & (time <= 1000) ~ TRUE,
+      TRUE ~ FALSE), 
+    
+    
+    # find time index where temp reaches 1200F
+    close_1200 = if_else(
+      (time < index_max_temp), (abs(1200 - avg_kiln_temp)), NULL
+      ),
+    index_1200F = which.min(close_1200),
+    
+    # is pressure within range 0.01 - 0.03 before 1200F?
+    betw_1_3 = if_else(
+      (pressure >= 0.01) & (pressure <= 0.03) & (time < index_1200F), 1, 0
+    ),
+
+        # find pos pressures before 1200F index for AUC plotting
+    press_auc_max_1200 = if_else((pressure >  0) & (time <= index_1200F), pressure, NULL),
+    press_auc_min_1200 = if_else((pressure <= 0) & (time <= index_1200F), pressure, NULL)
+    ) %>% 
+  
+  dplyr::select(-c(close_1200))
+
+# which.min(test$close_1200)
+# test <- test %>% 
+#   mutate(index_1200F = which.min(test$close_1200))
+
+# time at positive pressure between 0, 1000 minutes:
+test %>% dplyr::summarise(pos_pres_1000 = sum(pos_pres_1000,na.rm = TRUE))
 
 sec_y_scale=20000
 sec_y_shift=1500
 
 test %>% 
-  mutate(
-    pos_pres = case_when(
-      pressure <= 0 ~ "neg",
-      pressure > 0 ~ "pos",
-      TRUE ~ "NA"),
-    pres_limits = case_when(
-      pressure > .01 & pressure < .03 ~ TRUE,
-      TRUE ~ FALSE)
-    ) %>% 
   ggplot(aes(x=time, y=avg_kiln_temp))+
-  geom_line(aes(y=setpoint),color='grey50',linetype='dashed')+
   geom_line(color='blue')+
-  # geom_point(aes(y=pressure * sec_y_scale + sec_y_shift,color=pres_limits),size=.3)+
-  # geom_line(aes(y=pressure * sec_y_scale + sec_y_shift),alpha=.1,size=.1,color='grey50')+
-  geom_point(aes(y=pressure * sec_y_scale + sec_y_shift,color=pos_pres),size=.3)+
-  geom_line(aes(y=pressure * sec_y_scale + sec_y_shift),alpha=.1,size=.1,color='grey50')+
+  geom_line(aes(y=setpoint),color='grey50',linetype='dashed')+
+  geom_point(aes(y=pressure * sec_y_scale + sec_y_shift,
+                 color=pos_pres_1000),
+             size=.3)+
+  geom_hline(aes(yintercept = 0 * sec_y_scale + sec_y_shift),color='grey70')+
+  geom_vline(aes(xintercept = 1000),color='grey70')+
+  geom_vline(aes(xintercept = 0),color='grey70')+
+  scale_y_continuous(
+    sec.axis = sec_axis(~ . / sec_y_scale - (sec_y_shift / sec_y_scale), 
+                        name = "Pressure", 
+                        breaks = seq(-.1,.1,.01))
+  )+
+  theme(axis.text.y        = element_text(color = 'blue'),
+        axis.title.y       = element_text(color = 'blue'),
+        axis.text.y.right  = element_text(color = 'red'),
+        axis.title.y.right = element_text(color = 'red'),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        # panel.border = element_blank(),
+        panel.background = element_blank())
+
+# AUC of positive pressure when temp <= 1200F
+
+# sec_y_scale=20000
+# sec_y_shift=1500
+
+test %>% 
+  ggplot(aes(x=time, y=avg_kiln_temp))+
+  geom_line(color='blue')+
+  geom_line(aes(y=setpoint),color='grey50',linetype='dashed')+
+  geom_hline(aes(yintercept = .0 * sec_y_scale + sec_y_shift),color='red')+
+  geom_hline(aes(yintercept = .01 * sec_y_scale + sec_y_shift),color='red',linetype='dashed')+
+  geom_hline(aes(yintercept = .03 * sec_y_scale + sec_y_shift),color='red',linetype='dashed')+
+  geom_vline(aes(xintercept = index_1200F),color='red',linetype='dotted')+
+  geom_point(aes(y=pressure * sec_y_scale + sec_y_shift),size=.3, alpha=.2)+
+  geom_smooth(aes(y=pressure * sec_y_scale + sec_y_shift),size=.5)+
+  scale_x_continuous(breaks = sort(c(seq(0,5000,1000),unique(test$index_1200F))))+
+  scale_y_continuous(
+    breaks = sort(c(seq(0,3000,1000),400,600,1200)),
+    sec.axis = sec_axis(~ . / sec_y_scale - (sec_y_shift / sec_y_scale), 
+                        name = "Pressure", 
+                        breaks = seq(-.1,.1,.01))
+    )+
+  geom_ribbon(aes(ymin = 0 * sec_y_scale + sec_y_shift, ymax = press_auc_max_1200 * sec_y_scale + sec_y_shift),fill='yellow',alpha=.5)+
+  geom_ribbon(aes(ymin = press_auc_min_1200 * sec_y_scale + sec_y_shift, ymax = 0 * sec_y_scale + sec_y_shift),fill='red',alpha=.5)+
+  geom_ribbon(aes(ymin = auc_min, ymax = auc_max),fill='green',alpha=.3)
+
+
+
+  geom_line (aes(y=pressure * sec_y_scale + sec_y_shift),alpha=.1,size=.1,color='grey50')+
   geom_hline(aes(yintercept = .0 * sec_y_scale + sec_y_shift),color='grey70')+
+  geom_hline(aes(yintercept = 1200),color='grey70')+
+  geom_vline(aes(xintercept = 1000),color='grey70')+
   geom_hline(aes(yintercept = .01 * sec_y_scale + sec_y_shift),linetype='dotted')+
   geom_hline(aes(yintercept = .03 * sec_y_scale + sec_y_shift),linetype='dotted')+
   geom_ribbon(aes(ymin = auc_min, ymax = auc_max), fill='green', alpha=.3)+
@@ -88,6 +170,20 @@ test %>%
         panel.grid.minor = element_blank(),
         # panel.border = element_blank(),
         panel.background = element_blank())
+
+t2 <- test %>% 
+  mutate(
+    pos_pres = case_when(
+      pressure <= 0 ~ 0,
+      (pressure > 0) & (time <= 1000) ~ 1,
+      TRUE ~ 0),
+    near_1200 = abs(1200-avg_kiln_temp)) 
+  dplyr::summarise(
+    pos_pres_tot = sum(pos_pres),
+    closest_1200 = min(near_1200))
+
+which.min(abs(t2$avg_kiln_temp-1200))
+
 
 
 
