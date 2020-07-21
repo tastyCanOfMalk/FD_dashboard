@@ -223,7 +223,7 @@ kilns_D <- kilns_D[!is.na(kilns_D$date),]
 kilns_D <- kilns_D[!kilns_D$LOTNO == "010419D",]
 kilns_D_2018 <- select_mutate(kilns_D)
 
-levels(kilns_D_2018$LOTNO)
+# levels(kilns_D_2018$LOTNO)
 # length(levels(kilns_D_2018$LOTNO))
 # plot_range   (kilns_D_2018,1,25)
 # plot_range   (kilns_D_2018,25,50)

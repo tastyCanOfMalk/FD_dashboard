@@ -17,55 +17,62 @@ kilns_AB <- bind_rows(kilns_AB_2018,
                       kilns_AB_2020)) %>% 
   plyr::mutate(year = as.factor(year(date))) %>%
   mutate_if(is.character, as.factor) %>% 
-  dplyr::select(date, year, kiln, LOTNO, time, avg_kiln_temp, setpoint, everything()) %>% 
+  dplyr::select(date, year, kiln, LOTNO, time, avg_kiln_temp, setpoint, kilnpress, pres_wsp, everything()) %>% 
   mutateAucValues()
+colnames(kilns_AB)[c(9,10)] <- c("pressure", "pressure_sp")
 
 kilns_C <- bind_rows(kilns_C_2018, 
            bind_rows(kilns_C_2019, 
                      kilns_C_2020)) %>%
   plyr::mutate(year = as.factor(year(date))) %>%
   mutate_if(is.character, as.factor) %>% 
-  dplyr::select(date, year, kiln, LOTNO, time, avg_kiln_temp, setpoint, everything()) %>% 
+  dplyr::select(date, year, kiln, LOTNO, time, avg_kiln_temp, setpoint, pv, press_wsp, everything()) %>% 
   mutateAucValues()
-  
+colnames(kilns_C)[c(9,10)] <- c("pressure", "pressure_sp")
+
 kilns_D <- bind_rows(kilns_D_2018, 
            bind_rows(kilns_D_2019, 
                      kilns_D_2020)) %>%
   plyr::mutate(year = as.factor(year(date))) %>%
   mutate_if(is.character, as.factor) %>% 
-  dplyr::select(date, year, kiln, LOTNO, time, avg_kiln_temp, setpoint, everything()) %>% 
+  dplyr::select(date, year, kiln, LOTNO, time, avg_kiln_temp, setpoint, kiln_press, press_wsp, everything()) %>% 
   mutateAucValues()
+colnames(kilns_D)[c(9,10)] <- c("pressure", "pressure_sp")
 
 kilns_E <- bind_rows(kilns_E_2019, 
                      kilns_E_2020) %>%
   plyr::mutate(year = as.factor(year(date))) %>%
   mutate_if(is.character, as.factor) %>% 
-  dplyr::select(date, year, kiln, LOTNO, time, avg_kiln_temp, setpoint, everything()) %>% 
+  dplyr::select(date, year, kiln, LOTNO, time, avg_kiln_temp, setpoint, kiln_press, press_wsp, everything()) %>% 
   mutateAucValues()
+colnames(kilns_E)[c(9,10)] <- c("pressure", "pressure_sp")
 
 kilns_F <- bind_rows(kilns_F_2018, 
            bind_rows(kilns_F_2019, 
                      kilns_F_2020)) %>%
   plyr::mutate(year = as.factor(year(date))) %>%
   mutate_if(is.character, as.factor) %>% 
-  dplyr::select(date, year, kiln, LOTNO, time, avg_kiln_temp, setpoint, everything()) %>% 
+  dplyr::select(date, year, kiln, LOTNO, time, avg_kiln_temp, setpoint, kiln_press, press_wsp, everything()) %>% 
   mutateAucValues()
+colnames(kilns_F)[c(9,10)] <- c("pressure", "pressure_sp")
 
 kilns_G <- bind_rows(kilns_G_2018, 
            bind_rows(kilns_G_2019, 
                      kilns_G_2020)) %>%
   plyr::mutate(year = as.factor(year(date))) %>%
   mutate_if(is.character, as.factor) %>% 
-  dplyr::select(date, year, kiln, LOTNO, time, avg_kiln_temp, setpoint, everything()) %>% 
+  dplyr::select(date, year, kiln, LOTNO, time, avg_kiln_temp, setpoint, kiln_pr, kpress_wsp, everything()) %>% 
   mutateAucValues()
-  
+colnames(kilns_G)[c(9,10)] <- c("pressure", "pressure_sp")
+
 kilns_H <- bind_rows(kilns_H_2018, 
            bind_rows(kilns_H_2019, 
                      kilns_H_2020)) %>%
   plyr::mutate(year = as.factor(year(date))) %>%
   mutate_if(is.character, as.factor) %>% 
-  dplyr::select(date, year, kiln, LOTNO, time, avg_kiln_temp, setpoint, everything()) %>% 
+  dplyr::select(date, year, kiln, LOTNO, time, avg_kiln_temp, setpoint, pressure, press_wsp, everything()) %>% 
   mutateAucValues()
+colnames(kilns_H)[c(9,10)] <- c("pressure", "pressure_sp")
 
 # export all separated kiln data ------------------------------------------
 write_csv(kilns_AB,"data/processed_data/kilns_AB.csv")
@@ -200,6 +207,9 @@ write_csv(allAucValues, "data/processed_data/kilnsAucValues.csv")
 # plotAucValues(df = kilns_H, 57, 112,  crop=T, free.x=F)
 # plotAucValues(df = kilns_H, 113, 168, crop=T, free.x=F)
 # plotAucValues(df = kilns_H, 169, 224, crop=T, free.x=F)
+
+
+
 
 
 
