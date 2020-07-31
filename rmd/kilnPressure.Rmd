@@ -21,31 +21,39 @@ knitr::opts_chunk$set(echo    = TRUE,
                       dpi = 180)
 rm(list = ls())
 
+setwd("I:/Code-CAD/R/FD_dashboard")
+
 library(tidyverse)
 library(magrittr)
 library(scales)
 library(tidymodels)
 library(corrplot)
+library(binr)
+library(kableExtra)
+library(gridExtra)
+library(ggpointdensity)
+library(vip)
 
+# set theme
 theme_set(theme_minimal())
 
-source("../src/kilnFunctions.R")
-source("../src/userFunctions.R")
+source("src/kilnFunctions.R")
+source("src/userFunctions.R")
 
 # import data -------------------------------------------------------------
-df_merged    <- read_csv("../data/processed_data/df_merged.csv")
-df_yields    <- read_csv("../data/processed_data/df_yields.csv")
-df_defects   <- read_csv("../data/processed_data/df_defects.csv")
+df_merged    <- read_csv("data/processed_data/df_merged.csv")
+df_yields    <- read_csv("data/processed_data/df_yields.csv")
+df_defects   <- read_csv("data/processed_data/df_defects.csv")
 
-allAucValues <- read_csv("../data/processed_data/kilnsAucValues.csv")
+allAucValues <- read_csv("data/processed_data/kilnsAucValues.csv")
 
 # kilns_AB     <- read_csv("data/processed_data/kilns_AB.csv") %>% mutate_if(is.character,as.factor)
-kilns_C      <- read_csv("../data/processed_data/kilns_C.csv")  %>% mutate_if(is.character,as.factor)
-kilns_D      <- read_csv("../data/processed_data/kilns_D.csv")  %>% mutate_if(is.character,as.factor)
-kilns_E      <- read_csv("../data/processed_data/kilns_E.csv")  %>% mutate_if(is.character,as.factor)
-kilns_F      <- read_csv("../data/processed_data/kilns_F.csv")  %>% mutate(kiln = "F") %>% mutate_if(is.character,as.factor) 
-kilns_G      <- read_csv("../data/processed_data/kilns_G.csv")  %>% mutate_if(is.character,as.factor)
-kilns_H      <- read_csv("../data/processed_data/kilns_H.csv")  %>% mutate_if(is.character,as.factor)
+kilns_C      <- read_csv("data/processed_data/kilns_C.csv")  %>% mutate_if(is.character,as.factor)
+kilns_D      <- read_csv("data/processed_data/kilns_D.csv")  %>% mutate_if(is.character,as.factor)
+kilns_E      <- read_csv("data/processed_data/kilns_E.csv")  %>% mutate_if(is.character,as.factor)
+kilns_F      <- read_csv("data/processed_data/kilns_F.csv")  %>% mutate(kiln = "F") %>% mutate_if(is.character,as.factor) 
+kilns_G      <- read_csv("data/processed_data/kilns_G.csv")  %>% mutate_if(is.character,as.factor)
+kilns_H      <- read_csv("data/processed_data/kilns_H.csv")  %>% mutate_if(is.character,as.factor)
 
 kilns_All <- bind_rows(kilns_C[c(1:10,22,23)], 
                         kilns_D[c(1:10,22,23)], 
@@ -67,10 +75,9 @@ Using the kiln pressure data we can generate features to aid in concreteley dete
     + Duration when **(0.01 <= pressure <= 0.03)**
     + Standard deviation of **pressure**
     + Mean of **pressure**
-    + Also: what percentage of time is spent at each of these ranges?
-    
+    + Add weather data once again?
 
-Area under the curve was originally going to be calculated but after some thought, time spent within the pressure ranges seemed a more useful metric. Could potentially revisit an AUC calculation later on.  
+Area under the curve was originally going to be calculated but after some thought, time spent within the pressure ranges seemed a more useful metric. Could potentially revisit an AUC calculation later on. 
 
 ```{r}
 press_calcs <- kilns_All %>% 
@@ -103,17 +110,19 @@ press_calcs <- press_calcs %>%
     press_1200F = if_else(time <= index_1200F, pressure, NULL),
 
     # segregate pressures into range columns
-    press_greater_03 = if_else((pressure >  .03) &                     (time <= index_1200F), pressure, NULL),
-    press_betw_01_03 = if_else((pressure >= .01) & (pressure <= .03) & (time <= index_1200F), pressure, NULL),
-    press_betw_00_01 = if_else((pressure <  .01) & (pressure >=   0) & (time <= index_1200F), pressure, NULL),
-    press_less_00    = if_else((pressure <    0) &                     (time <= index_1200F), pressure, NULL),
+    press_greater_03 = if_else((pressure >= .03) &                    (time <= index_1200F), pressure, NULL),
+    press_betw_02_03 = if_else((pressure >= .02) & (pressure < .03) & (time <= index_1200F), pressure, NULL),
+    press_betw_01_02 = if_else((pressure >= .01) & (pressure < .02) & (time <= index_1200F), pressure, NULL),
+    press_betw_00_01 = if_else((pressure >=  .0) & (pressure < .01) & (time <= index_1200F), pressure, NULL),
+    press_less_00    = if_else((pressure <    0) &                    (time <= index_1200F), pressure, NULL),
     
     # add counter columns for easy aggregation of total times spent in range
     press_pos_count = if_else(!is.na(press_pos),1,0),
     press_neg_count = if_else(!is.na(press_neg),1,0),
     
     press_greater_03_count = if_else(!is.na(press_greater_03),1,0),
-    press_betw_01_03_count = if_else(!is.na(press_betw_01_03),1,0),
+    press_betw_02_03_count = if_else(!is.na(press_betw_02_03),1,0),
+    press_betw_01_02_count = if_else(!is.na(press_betw_01_02),1,0),
     press_betw_00_01_count = if_else(!is.na(press_betw_00_01),1,0),
     press_less_00_count    = if_else(!is.na(press_less_00),1,0)
     
@@ -137,7 +146,8 @@ press_summ <- press_calcs %>%
 
     # sum times at pressure ranges
     time_greater_03 = sum(press_greater_03_count, na.rm=TRUE),
-    time_betw_01_03 = sum(press_betw_01_03_count, na.rm=TRUE),
+    time_betw_02_03 = sum(press_betw_02_03_count, na.rm=TRUE),
+    time_betw_01_02 = sum(press_betw_01_02_count, na.rm=TRUE),
     time_betw_00_01 = sum(press_betw_00_01_count, na.rm=TRUE),
     time_less_00    = sum(press_less_00_count,    na.rm=TRUE)
   )
@@ -148,7 +158,8 @@ press_joined <- left_join(press_calcs, press_summ) %>%
     pct_time_at_pos     = time_at_pos/index_1200F,
     pct_time_at_neg     = time_at_neg/index_1200F,
     pct_time_greater_03 = time_greater_03/index_1200F,
-    pct_time_betw_01_03 = time_betw_01_03/index_1200F,
+    pct_time_betw_02_03 = time_betw_02_03/index_1200F,
+    pct_time_betw_01_02 = time_betw_01_02/index_1200F,
     pct_time_betw_00_01 = time_betw_00_01/index_1200F,
     pct_time_less_00    = time_less_00/index_1200F
   ) %>% 
@@ -156,15 +167,60 @@ press_joined <- left_join(press_calcs, press_summ) %>%
   dplyr::select(-c(press_pos_count,
                    press_neg_count,
                    press_greater_03_count,
-                   press_betw_01_03_count,
+                   press_betw_02_03_count,
+                   press_betw_01_02_count,
                    press_betw_00_01_count,
                    press_less_00_count,
                    press_1200F
   ))
 
 # attached aucDiff to each df
-press_summ <- left_join(press_summ, allAucValues)
+press_summ   <- left_join(press_summ, allAucValues)
 press_joined <- left_join(press_joined, allAucValues)
+
+# add kiln column for quick filtering
+press_summ <- press_summ %>%
+  mutate(kiln = as.factor(str_extract(LOTNO, "[:alpha:]"))) 
+
+# add weather data as well..
+press_summ <- df_yields %>% 
+  group_by(LOTNO) %>% slice(1) %>% ungroup() %>% 
+  dplyr::select(LOTNO, precip:temp_avg) %>% 
+  right_join(press_summ)
+
+# prepare lot yield metric
+# get lot yields by summarising fired and rejects
+lot_yields <- 
+  df_yields %>% 
+    group_by(LOTNO) %>% 
+    dplyr::summarise(
+      lot_items_fired = sum(TOTAL_ITEM_FIRED),
+      lot_items_rejected = sum(TOTAL_ITEM_REJECTED),
+      lot_yield = (lot_items_fired - lot_items_rejected) / lot_items_fired
+    ) %>% 
+    dplyr::select(LOTNO, lot_yield)
+
+# join yields with features, remove 20 missing lot yield values
+press_summ <- left_join(press_summ, lot_yields) %>% 
+  na.omit()
+
+#
+# significance function
+cor.mtest <- function(mat, ...) {
+    mat <- as.matrix(mat)
+    n <- ncol(mat)
+    p.mat<- matrix(NA, n, n)
+    diag(p.mat) <- 0
+    for (i in 1:(n - 1)) {
+        for (j in (i + 1):n) {
+            tmp <- cor.test(mat[, i], mat[, j], ...)
+            p.mat[i, j] <- p.mat[j, i] <- tmp$p.value
+        }
+    }
+  colnames(p.mat) <- rownames(p.mat) <- colnames(mat)
+  p.mat
+}
+
 ```
 
 # Visualize features {.tabset .tabset-pills .tabset-fade}
@@ -175,7 +231,15 @@ Quick visualization of randomly selected lots to verify that metrics seem to be 
 
 ```{r}
 # sample random lots
-sample <- sample(levels(kilns_All$LOTNO),4)
+set.seed(123)
+sampleC <- sample(levels(kilns_C$LOTNO),1)
+sampleD <- sample(levels(kilns_D$LOTNO),1)
+sampleE <- sample(levels(kilns_E$LOTNO),1)
+sampleF <- sample(levels(kilns_F$LOTNO),1)
+sampleG <- sample(levels(kilns_G$LOTNO),2)
+sampleH <- sample(levels(kilns_H$LOTNO),2)
+sample <- c(sampleC, sampleD, sampleE, sampleF)
+
 # scale and shift values for second y-axis
 sec_y_scale=20000
 sec_y_shift=1500
@@ -191,7 +255,8 @@ press_joined %>%
   geom_point(aes(y=pressure * sec_y_scale + sec_y_shift),alpha=.1,size=.1)+
   
   # PRESSURE POINTS
-  geom_point(aes(y=press_betw_01_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green')+
+  geom_point(aes(y=press_betw_02_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green3')+
+  geom_point(aes(y=press_betw_01_02 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green')+
   geom_point(aes(y=press_greater_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
   geom_point(aes(y=press_betw_00_01 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='yellow2')+
   geom_point(aes(y=press_less_00    * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
@@ -199,6 +264,7 @@ press_joined %>%
   # HLINES
   geom_hline(aes(yintercept = .0 * sec_y_scale + sec_y_shift),color='red')+
   geom_hline(aes(yintercept = .01 * sec_y_scale + sec_y_shift),color='red',linetype='dashed')+
+  geom_hline(aes(yintercept = .02 * sec_y_scale + sec_y_shift),color='green',linetype='dashed')+
   geom_hline(aes(yintercept = .03 * sec_y_scale + sec_y_shift),color='red',linetype='dashed')+
     # mean/sd
   # geom_hline(aes(yintercept = mean_press * sec_y_scale + sec_y_shift),            color = 'blue',linetype='dotdash',size=1)+
@@ -282,13 +348,21 @@ press_joined %>%
              ),
              label.padding = unit(0.2, "lines"),hjust=1,vjust=.5,fill='yellow3'
              ) +
-  # BETW 01 03
-  geom_label(data = press_joined %>% dplyr::filter(LOTNO %in% sample) %>% distinct(time_betw_01_03, pct_time_betw_01_03, index_1200F),
-             aes(x = 60 * 72, y = .02 * sec_y_scale + sec_y_shift,
-                 label = paste0( time_betw_01_03, "m, ",
-                                 mypercent(pct_time_betw_01_03))
+  # BETW 01 02
+  geom_label(data = press_joined %>% dplyr::filter(LOTNO %in% sample) %>% distinct(time_betw_01_02, pct_time_betw_01_02, index_1200F),
+             aes(x = 60 * 72, y = .015 * sec_y_scale + sec_y_shift,
+                 label = paste0( time_betw_01_02, "m, ",
+                                 mypercent(pct_time_betw_01_02))
              ),
              label.padding = unit(0.2, "lines"),hjust=1,vjust=.5,fill='green'
+             ) +
+  # BETW 02 03
+  geom_label(data = press_joined %>% dplyr::filter(LOTNO %in% sample) %>% distinct(time_betw_02_03, pct_time_betw_02_03, index_1200F),
+             aes(x = 60 * 72, y = .025 * sec_y_scale + sec_y_shift,
+                 label = paste0( time_betw_02_03, "m, ",
+                                 mypercent(pct_time_betw_02_03))
+             ),
+             label.padding = unit(0.2, "lines"),hjust=1,vjust=.5,fill='green3'
              ) +
   # GREATER 03
   geom_label(data = press_joined %>% dplyr::filter(LOTNO %in% sample) %>% distinct(time_greater_03, pct_time_greater_03, index_1200F),
@@ -305,10 +379,8 @@ press_joined %>%
 
 ```{r}
 # sample random lots
+set.seed(8634)
 sample <- sample(levels(kilns_All$LOTNO),4)
-# scale and shift values for second y-axis
-sec_y_scale=20000
-sec_y_shift=1500
 
 # plot
 press_joined %>% 
@@ -321,7 +393,8 @@ press_joined %>%
   geom_point(aes(y=pressure * sec_y_scale + sec_y_shift),alpha=.1,size=.1)+
   
   # PRESSURE POINTS
-  geom_point(aes(y=press_betw_01_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green')+
+  geom_point(aes(y=press_betw_02_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green3')+
+  geom_point(aes(y=press_betw_01_02 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green')+
   geom_point(aes(y=press_greater_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
   geom_point(aes(y=press_betw_00_01 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='yellow2')+
   geom_point(aes(y=press_less_00    * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
@@ -329,6 +402,7 @@ press_joined %>%
   # HLINES
   geom_hline(aes(yintercept = .0 * sec_y_scale + sec_y_shift),color='red')+
   geom_hline(aes(yintercept = .01 * sec_y_scale + sec_y_shift),color='red',linetype='dashed')+
+  geom_hline(aes(yintercept = .02 * sec_y_scale + sec_y_shift),color='green',linetype='dashed')+
   geom_hline(aes(yintercept = .03 * sec_y_scale + sec_y_shift),color='red',linetype='dashed')+
     # mean/sd
   # geom_hline(aes(yintercept = mean_press * sec_y_scale + sec_y_shift),            color = 'blue',linetype='dotdash',size=1)+
@@ -412,13 +486,21 @@ press_joined %>%
              ),
              label.padding = unit(0.2, "lines"),hjust=1,vjust=.5,fill='yellow3'
              ) +
-  # BETW 01 03
-  geom_label(data = press_joined %>% dplyr::filter(LOTNO %in% sample) %>% distinct(time_betw_01_03, pct_time_betw_01_03, index_1200F),
-             aes(x = 60 * 72, y = .02 * sec_y_scale + sec_y_shift,
-                 label = paste0( time_betw_01_03, "m, ",
-                                 mypercent(pct_time_betw_01_03))
+  # BETW 01 02
+  geom_label(data = press_joined %>% dplyr::filter(LOTNO %in% sample) %>% distinct(time_betw_01_02, pct_time_betw_01_02, index_1200F),
+             aes(x = 60 * 72, y = .015 * sec_y_scale + sec_y_shift,
+                 label = paste0( time_betw_01_02, "m, ",
+                                 mypercent(pct_time_betw_01_02))
              ),
              label.padding = unit(0.2, "lines"),hjust=1,vjust=.5,fill='green'
+             ) +
+  # BETW 02 03
+  geom_label(data = press_joined %>% dplyr::filter(LOTNO %in% sample) %>% distinct(time_betw_02_03, pct_time_betw_02_03, index_1200F),
+             aes(x = 60 * 72, y = .025 * sec_y_scale + sec_y_shift,
+                 label = paste0( time_betw_02_03, "m, ",
+                                 mypercent(pct_time_betw_02_03))
+             ),
+             label.padding = unit(0.2, "lines"),hjust=1,vjust=.5,fill='green3'
              ) +
   # GREATER 03
   geom_label(data = press_joined %>% dplyr::filter(LOTNO %in% sample) %>% distinct(time_greater_03, pct_time_greater_03, index_1200F),
@@ -431,578 +513,1061 @@ press_joined %>%
   facet_wrap(~LOTNO)
 ```
 
-## 3
+# Distribution of features {.tabset .tabset-pills}
 
-```{r}
-# sample random lots
-sample <- sample(levels(kilns_All$LOTNO),4)
-# scale and shift values for second y-axis
-sec_y_scale=20000
-sec_y_shift=1500
+Distribution check of new features shows generally skewed and heavy-tailed data.    
 
-# plot
-press_joined %>% 
-  dplyr::filter(LOTNO %in% sample) %>% 
-  
-  # KILN TEMP, SETPOINT, PRESSURE
-  ggplot(aes(x=time))+
-  geom_line(aes(y=avg_kiln_temp))+
-  geom_line(aes(y=setpoint),color='grey50',linetype='dashed')+
-  geom_point(aes(y=pressure * sec_y_scale + sec_y_shift),alpha=.1,size=.1)+
-  
-  # PRESSURE POINTS
-  geom_point(aes(y=press_betw_01_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green')+
-  geom_point(aes(y=press_greater_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
-  geom_point(aes(y=press_betw_00_01 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='yellow2')+
-  geom_point(aes(y=press_less_00    * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
-  
-  # HLINES
-  geom_hline(aes(yintercept = .0 * sec_y_scale + sec_y_shift),color='red')+
-  geom_hline(aes(yintercept = .01 * sec_y_scale + sec_y_shift),color='red',linetype='dashed')+
-  geom_hline(aes(yintercept = .03 * sec_y_scale + sec_y_shift),color='red',linetype='dashed')+
-    # mean/sd
-  # geom_hline(aes(yintercept = mean_press * sec_y_scale + sec_y_shift),            color = 'blue',linetype='dotdash',size=1)+
-  # geom_hline(aes(yintercept = (mean_press+sd_press) * sec_y_scale + sec_y_shift), color = 'blue2',linetype='dotted',size=1)+
-  # geom_hline(aes(yintercept = (mean_press-sd_press) * sec_y_scale + sec_y_shift), color = 'blue2',linetype='dotted',size=1)+
-  
-  # PRESSURE RIBBONS
-  # geom_ribbon(aes(ymin = press_less_00 * sec_y_scale + sec_y_shift, ymax = 0 * sec_y_scale + sec_y_shift),fill='red',alpha=1)+
-  # geom_ribbon(aes(ymin = 0.00 * sec_y_scale + sec_y_shift, ymax = press_betw_00_01 * sec_y_scale +sec_y_shift),fill='yellow3',alpha=1)+
-  # geom_ribbon(aes(ymin = 0.0 * sec_y_scale + sec_y_shift, ymax = press_betw_01_03 * sec_y_scale + sec_y_shift),fill='green',alpha=1)+
-  # geom_ribbon(aes(ymin = 0.0 * sec_y_scale + sec_y_shift, ymax = press_greater_03 * sec_y_scale + sec_y_shift),fill='red',alpha=1)+
-  # zoom on ribbons
-  # scale_x_continuous(limits = c(0,18.4*60))+
-  # scale_y_continuous(limits = c(1250,2350))
-    # setpoint, temp AUC ribbon
-  geom_ribbon(aes(ymin = auc_min, ymax = auc_max),fill='pink',alpha=1)+
-  
-  scale_y_continuous(name = "Kiln temp (F)",
-                   breaks = sort(c(seq(0,3000,1000),400,600,1200)),
-                   sec.axis = sec_axis(~. / sec_y_scale - (sec_y_shift / sec_y_scale),
-                                       name = "Pressure",
-                                       breaks = seq(-.1,.1,.01)
-                                       )
-                   )+
-  scale_x_continuous(name = "Hours", 
-                     labels = number_format(scale=1/60),
-                     breaks = sort(c(seq(0,100*60,12*60)))
-                     )+
-  
-  # labels
-  # AUC
-  geom_label(data = press_joined %>% dplyr::filter(LOTNO %in% sample) %>% distinct(aucDiff),
-             aes(x = 60 * 30, y = -0.065 * sec_y_scale + sec_y_shift,
-                 label = paste0( "AUC: ", round(aucDiff,0) )
-             ),
-             label.padding = unit(0.2, "lines"),hjust=1,vjust=.5,fill='pink',label.size=.1
-             ) +
-  # MEAN
-  geom_label(data = press_joined %>% dplyr::filter(LOTNO %in% sample) %>% distinct(mean_press),
-             aes(x = 60 * 30, y = -0.02 * sec_y_scale + sec_y_shift,
-                 label = paste0( "mean: ", round(mean_press,3) )
-             ),
-             label.padding = unit(0.2, "lines"),hjust=1,vjust=.5,fill='lightskyblue',label.size=.1
-             ) +
-  # SD
-  geom_label(data = press_joined %>% dplyr::filter(LOTNO %in% sample) %>% distinct(sd_press),
-             aes(x = 60 * 30, y = -0.03 * sec_y_scale + sec_y_shift,
-                 label = paste0( "sd: ", round(sd_press,3) )
-             ),
-             label.padding = unit(0.2, "lines"),hjust=1,vjust=.5,fill='lightskyblue2',label.size=.1
-             ) +
-  # POS PRESS
-  geom_label(data = press_joined %>% dplyr::filter(LOTNO %in% sample) %>% distinct(time_at_pos, pct_time_at_pos, index_1200F),
-             aes(x = 60 * 72, y = -0.04 * sec_y_scale + sec_y_shift,
-                 label = paste0( time_at_pos, "m, ",
-                                 mypercent(pct_time_at_pos))
-             ),
-             label.padding = unit(0.2, "lines"),hjust=1,vjust=.5,fill='grey80',label.size=.1
-  ) +
-  # NEG PRESS
-  geom_label(data = press_joined %>% dplyr::filter(LOTNO %in% sample) %>% distinct(time_at_neg, pct_time_at_neg, index_1200F),
-             aes(x = 60 * 72, y = -0.06 * sec_y_scale + sec_y_shift,
-                 label = paste0( time_at_neg, "m, ",
-                                 mypercent(pct_time_at_neg))
-             ),
-             label.padding = unit(0.2, "lines"),hjust=1,vjust=.5,fill='grey90'
-             )+
-  # LESS 00
-  geom_label(data = press_joined %>% dplyr::filter(LOTNO %in% sample) %>% distinct(time_less_00, pct_time_less_00, index_1200F),
-             aes(x = 60 * 72, y = -.02 * sec_y_scale + sec_y_shift,
-                 label = paste0( time_less_00, "m, ",
-                                 mypercent(pct_time_less_00))
-             ),
-             label.padding = unit(0.2, "lines"),hjust=1,vjust=.5,fill='red'
-             )+
-  # BETW 00 01
-  geom_label(data = press_joined %>% dplyr::filter(LOTNO %in% sample) %>% distinct(time_betw_00_01, pct_time_betw_00_01, index_1200F),
-             aes(x = 60 * 72, y = 0.0 * sec_y_scale + sec_y_shift,
-                 label = paste0( time_betw_00_01, "m, ",
-                                 mypercent(pct_time_betw_00_01))
-             ),
-             label.padding = unit(0.2, "lines"),hjust=1,vjust=.5,fill='yellow3'
-             ) +
-  # BETW 01 03
-  geom_label(data = press_joined %>% dplyr::filter(LOTNO %in% sample) %>% distinct(time_betw_01_03, pct_time_betw_01_03, index_1200F),
-             aes(x = 60 * 72, y = .02 * sec_y_scale + sec_y_shift,
-                 label = paste0( time_betw_01_03, "m, ",
-                                 mypercent(pct_time_betw_01_03))
-             ),
-             label.padding = unit(0.2, "lines"),hjust=1,vjust=.5,fill='green'
-             ) +
-  # GREATER 03
-  geom_label(data = press_joined %>% dplyr::filter(LOTNO %in% sample) %>% distinct(time_greater_03, pct_time_greater_03, index_1200F),
-             aes(x = 60 * 72, y = 0.04 * sec_y_scale + sec_y_shift,
-                 label = paste0( time_greater_03, "m, ",
-                                 mypercent(pct_time_greater_03))
-             ),
-             label.padding = unit(0.2, "lines"),hjust=1,vjust=.5,fill='red'
-             ) +
-  facet_wrap(~LOTNO)
-```
-
-## 4
-
-```{r}
-# sample random lots
-sample <- sample(levels(kilns_All$LOTNO),1)
-# scale and shift values for second y-axis
-sec_y_scale=20000
-sec_y_shift=1500
-
-# plot
-press_joined %>% 
-  dplyr::filter(LOTNO %in% sample) %>% 
-  
-  # KILN TEMP, SETPOINT, PRESSURE
-  ggplot(aes(x=time))+
-  geom_line(aes(y=avg_kiln_temp))+
-  geom_line(aes(y=setpoint),color='grey50',linetype='dashed')+
-  geom_point(aes(y=pressure * sec_y_scale + sec_y_shift),alpha=.1,size=.1)+
-  
-  # PRESSURE POINTS
-  geom_point(aes(y=press_betw_01_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green')+
-  geom_point(aes(y=press_greater_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
-  geom_point(aes(y=press_betw_00_01 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='yellow2')+
-  geom_point(aes(y=press_less_00    * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
-  
-  # HLINES
-  geom_hline(aes(yintercept = .0 * sec_y_scale + sec_y_shift),color='red')+
-  geom_hline(aes(yintercept = .01 * sec_y_scale + sec_y_shift),color='red',linetype='dashed')+
-  geom_hline(aes(yintercept = .03 * sec_y_scale + sec_y_shift),color='red',linetype='dashed')+
-    # mean/sd
-  # geom_hline(aes(yintercept = mean_press * sec_y_scale + sec_y_shift),            color = 'blue',linetype='dotdash',size=1)+
-  # geom_hline(aes(yintercept = (mean_press+sd_press) * sec_y_scale + sec_y_shift), color = 'blue2',linetype='dotted',size=1)+
-  # geom_hline(aes(yintercept = (mean_press-sd_press) * sec_y_scale + sec_y_shift), color = 'blue2',linetype='dotted',size=1)+
-  
-  # PRESSURE RIBBONS
-  # geom_ribbon(aes(ymin = press_less_00 * sec_y_scale + sec_y_shift, ymax = 0 * sec_y_scale + sec_y_shift),fill='red',alpha=1)+
-  # geom_ribbon(aes(ymin = 0.00 * sec_y_scale + sec_y_shift, ymax = press_betw_00_01 * sec_y_scale +sec_y_shift),fill='yellow3',alpha=1)+
-  # geom_ribbon(aes(ymin = 0.0 * sec_y_scale + sec_y_shift, ymax = press_betw_01_03 * sec_y_scale + sec_y_shift),fill='green',alpha=1)+
-  # geom_ribbon(aes(ymin = 0.0 * sec_y_scale + sec_y_shift, ymax = press_greater_03 * sec_y_scale + sec_y_shift),fill='red',alpha=1)+
-  # zoom on ribbons
-  # scale_x_continuous(limits = c(0,18.4*60))+
-  # scale_y_continuous(limits = c(1250,2350))
-    # setpoint, temp AUC ribbon
-  geom_ribbon(aes(ymin = auc_min, ymax = auc_max),fill='pink',alpha=1)+
-  
-  scale_y_continuous(name = "Kiln temp (F)",
-                   breaks = sort(c(seq(0,3000,1000),400,600,1200)),
-                   sec.axis = sec_axis(~. / sec_y_scale - (sec_y_shift / sec_y_scale),
-                                       name = "Pressure",
-                                       breaks = seq(-.1,.1,.01)
-                                       )
-                   )+
-  scale_x_continuous(name = "Hours", 
-                     labels = number_format(scale=1/60),
-                     breaks = sort(c(seq(0,100*60,12*60)))
-                     )+
-  
-  # labels
-  # AUC
-  geom_label(data = press_joined %>% dplyr::filter(LOTNO %in% sample) %>% distinct(aucDiff),
-             aes(x = 60 * 30, y = -0.065 * sec_y_scale + sec_y_shift,
-                 label = paste0( "AUC: ", round(aucDiff,0) )
-             ),
-             label.padding = unit(0.2, "lines"),hjust=1,vjust=.5,fill='pink',label.size=.1
-             ) +
-  # MEAN
-  geom_label(data = press_joined %>% dplyr::filter(LOTNO %in% sample) %>% distinct(mean_press),
-             aes(x = 60 * 30, y = -0.02 * sec_y_scale + sec_y_shift,
-                 label = paste0( "mean: ", round(mean_press,3) )
-             ),
-             label.padding = unit(0.2, "lines"),hjust=1,vjust=.5,fill='lightskyblue',label.size=.1
-             ) +
-  # SD
-  geom_label(data = press_joined %>% dplyr::filter(LOTNO %in% sample) %>% distinct(sd_press),
-             aes(x = 60 * 30, y = -0.03 * sec_y_scale + sec_y_shift,
-                 label = paste0( "sd: ", round(sd_press,3) )
-             ),
-             label.padding = unit(0.2, "lines"),hjust=1,vjust=.5,fill='lightskyblue2',label.size=.1
-             ) +
-  # POS PRESS
-  geom_label(data = press_joined %>% dplyr::filter(LOTNO %in% sample) %>% distinct(time_at_pos, pct_time_at_pos, index_1200F),
-             aes(x = 60 * 72, y = -0.04 * sec_y_scale + sec_y_shift,
-                 label = paste0( time_at_pos, "m, ",
-                                 mypercent(pct_time_at_pos))
-             ),
-             label.padding = unit(0.2, "lines"),hjust=1,vjust=.5,fill='grey80',label.size=.1
-  ) +
-  # NEG PRESS
-  geom_label(data = press_joined %>% dplyr::filter(LOTNO %in% sample) %>% distinct(time_at_neg, pct_time_at_neg, index_1200F),
-             aes(x = 60 * 72, y = -0.06 * sec_y_scale + sec_y_shift,
-                 label = paste0( time_at_neg, "m, ",
-                                 mypercent(pct_time_at_neg))
-             ),
-             label.padding = unit(0.2, "lines"),hjust=1,vjust=.5,fill='grey90'
-             )+
-  # LESS 00
-  geom_label(data = press_joined %>% dplyr::filter(LOTNO %in% sample) %>% distinct(time_less_00, pct_time_less_00, index_1200F),
-             aes(x = 60 * 72, y = -.02 * sec_y_scale + sec_y_shift,
-                 label = paste0( time_less_00, "m, ",
-                                 mypercent(pct_time_less_00))
-             ),
-             label.padding = unit(0.2, "lines"),hjust=1,vjust=.5,fill='red'
-             )+
-  # BETW 00 01
-  geom_label(data = press_joined %>% dplyr::filter(LOTNO %in% sample) %>% distinct(time_betw_00_01, pct_time_betw_00_01, index_1200F),
-             aes(x = 60 * 72, y = 0.0 * sec_y_scale + sec_y_shift,
-                 label = paste0( time_betw_00_01, "m, ",
-                                 mypercent(pct_time_betw_00_01))
-             ),
-             label.padding = unit(0.2, "lines"),hjust=1,vjust=.5,fill='yellow3'
-             ) +
-  # BETW 01 03
-  geom_label(data = press_joined %>% dplyr::filter(LOTNO %in% sample) %>% distinct(time_betw_01_03, pct_time_betw_01_03, index_1200F),
-             aes(x = 60 * 72, y = .02 * sec_y_scale + sec_y_shift,
-                 label = paste0( time_betw_01_03, "m, ",
-                                 mypercent(pct_time_betw_01_03))
-             ),
-             label.padding = unit(0.2, "lines"),hjust=1,vjust=.5,fill='green'
-             ) +
-  # GREATER 03
-  geom_label(data = press_joined %>% dplyr::filter(LOTNO %in% sample) %>% distinct(time_greater_03, pct_time_greater_03, index_1200F),
-             aes(x = 60 * 72, y = 0.04 * sec_y_scale + sec_y_shift,
-                 label = paste0( time_greater_03, "m, ",
-                                 mypercent(pct_time_greater_03))
-             ),
-             label.padding = unit(0.2, "lines"),hjust=1,vjust=.5,fill='red'
-             ) +
-  facet_wrap(~LOTNO)
-```
-
-## Distribution
-
-Quick distribution check of new features.  
+## All features/kilns
 
 ```{r}
 # pivot data and plot histograms
 press_summ %>%
   dplyr::select(-LOTNO) %>% 
+  dplyr::select(time_at_pos:lot_yield) %>% 
   pivot_longer(cols = is.numeric) %>% 
   mutate_if(is.character, factor) %>% 
   ggplot(aes(x=value))+
-  geom_freqpoly()+
+  geom_freqpoly(bins=15)+
   facet_wrap(~name, scales='free')
 ```
 
-# Lot yield vs features
+## mean_press
 
-Are lot yields impacted by these features, and if so, how much?.  
+Mean pressure while temperature is less than 1200F is much higher for kilns G and H.  
 
 ```{r}
-# Join all data first
-
-# get lot yields by summarising fired and rejects
-lot_yields <- 
-  df_yields %>% 
-    group_by(LOTNO) %>% 
-    dplyr::summarise(
-      lot_items_fired = sum(TOTAL_ITEM_FIRED),
-      lot_items_rejected = sum(TOTAL_ITEM_REJECTED),
-      lot_yield = (lot_items_fired - lot_items_rejected) / lot_items_fired
-    ) %>% 
-    dplyr::select(LOTNO, lot_yield)
-
-# join with all features, remove 20 missing lot yield values
-press_summ <- left_join(press_summ, lot_yields) %>% 
-  na.omit()
-
-# since lot_yields are so skewed, bin into quantiles
-library(binr)
-
-cut_yields <- bins.quantiles(press_summ$lot_yield,6,10)
-cut_yield_vals <- bins.getvals(cut_yields)
-
-press_summ_binned <- press_summ %>% 
-  mutate(lot_yield_binned = case_when(
-     lot_yield <  cut_yield_vals[[2]] ~                                    "F",
-    (lot_yield >= cut_yield_vals[[2]] & lot_yield < cut_yield_vals[[3]]) ~ "E",
-    (lot_yield >= cut_yield_vals[[3]] & lot_yield < cut_yield_vals[[4]]) ~ "D",
-    (lot_yield >= cut_yield_vals[[4]] & lot_yield < cut_yield_vals[[5]]) ~ "C",
-    (lot_yield >= cut_yield_vals[[5]] & lot_yield < cut_yield_vals[[6]]) ~ "B",
-     lot_yield >= cut_yield_vals[[6]] ~                                    "A",
-    TRUE ~                                                                 "0"
-  ))
+press_summ %>%
+  mutate(kiln = as.factor(str_extract(LOTNO, "[:alpha:]"))) %>% 
+  dplyr::select(-LOTNO) %>%
+  dplyr::select(mean_press,kiln) %>% 
+  ggplot(aes(x=mean_press))+
+  geom_vline(aes(xintercept=0),linetype='dashed',color='red')+
+  geom_freqpoly(bins=15)+
+  facet_wrap(~kiln)
 ```
 
-## Corrplot
-
-Quick check for any linear correlations between variables shows very weak correlations between `lot_yield` and all features (p-value > 0.05).
+## time_less_00
 
 ```{r}
-# correlation matrix
-M <- press_summ %>% 
-  select(-LOTNO) %>% 
+press_summ %>%
+  mutate(kiln = as.factor(str_extract(LOTNO, "[:alpha:]"))) %>% 
+  dplyr::select(-LOTNO) %>%
+  dplyr::select(time_less_00,kiln) %>% 
+  ggplot(aes(x=time_less_00))+
+  geom_vline(aes(xintercept=0),linetype='dashed',color='red')+
+  geom_freqpoly(bins=15)+
+  facet_wrap(~kiln)
+```
+
+## time_betw_00_01
+
+```{r}
+press_summ %>%
+  mutate(kiln = as.factor(str_extract(LOTNO, "[:alpha:]"))) %>% 
+  dplyr::select(-LOTNO) %>%
+  dplyr::select(time_betw_00_01,kiln) %>% 
+  ggplot(aes(x=time_betw_00_01))+
+  geom_vline(aes(xintercept=0),linetype='dashed',color='red')+
+  geom_freqpoly(bins=15)+
+  facet_wrap(~kiln)
+```
+
+## time_betw_01_02
+
+Kilns G (especially) and H have far more time between .01 and .02 pressures.  
+
+```{r}
+press_summ %>%
+  mutate(kiln = as.factor(str_extract(LOTNO, "[:alpha:]"))) %>% 
+  dplyr::select(-LOTNO) %>%
+  dplyr::select(time_betw_01_02,kiln) %>% 
+  ggplot(aes(x=time_betw_01_02))+
+  geom_vline(aes(xintercept=0),linetype='dashed',color='red')+
+  geom_freqpoly(bins=15)+
+  facet_wrap(~kiln)
+```
+
+## time_betw_02_03
+
+Kilns G (especially) and H have far more time between .02 and .03 pressures.  
+
+```{r}
+press_summ %>%
+  mutate(kiln = as.factor(str_extract(LOTNO, "[:alpha:]"))) %>% 
+  dplyr::select(-LOTNO) %>%
+  dplyr::select(time_betw_02_03,kiln) %>% 
+  ggplot(aes(x=time_betw_02_03))+
+  geom_vline(aes(xintercept=0),linetype='dashed',color='red')+
+  geom_freqpoly(bins=15)+
+  facet_wrap(~kiln)
+```
+
+## time_greater_03
+
+```{r}
+press_summ %>%
+  mutate(kiln = as.factor(str_extract(LOTNO, "[:alpha:]"))) %>% 
+  dplyr::select(-LOTNO) %>%
+  dplyr::select(time_greater_03,kiln) %>% 
+  ggplot(aes(x=time_greater_03))+
+  geom_vline(aes(xintercept=0),linetype='dashed',color='red')+
+  geom_freqpoly(bins=15)+
+  facet_wrap(~kiln)
+```
+
+# Lot yields analysis 
+
+## Corrplots {.tabset .tabet-pills}
+
+Quick check of linear correlation of lot yields versus all features (including temps).  
+Only kiln E exhibits significant linear correlations (p > 0.05) with any pressure features.   
+
+### C
+
+No significant correlations.   
+
+```{r}
+M <- press_summ %>%
+  dplyr::filter(kiln == "C") %>% 
+  dplyr::select(c(-LOTNO,-kiln,-time_at_pos,-time_at_neg)) %>%
   cor()
-
-cor.mtest <- function(mat, ...) {
-    mat <- as.matrix(mat)
-    n <- ncol(mat)
-    p.mat<- matrix(NA, n, n)
-    diag(p.mat) <- 0
-    for (i in 1:(n - 1)) {
-        for (j in (i + 1):n) {
-            tmp <- cor.test(mat[, i], mat[, j], ...)
-            p.mat[i, j] <- p.mat[j, i] <- tmp$p.value
-        }
-    }
-  colnames(p.mat) <- rownames(p.mat) <- colnames(mat)
-  p.mat
-}
-
-# matrix of the p-value of the correlation
+M <- M[-9,-9]
 p.mat <- cor.mtest(M)
-
-corrplot(M, order="hclust", type='upper',
-         p.mat = p.mat, sig.level = 0.05)
+# corrplot(as.matrix(M[8,]), method="number",
+#          p.mat = as.matrix(p.mat[8,])
+#          , sig.level = 0.05)
+corrplot(as.matrix(M[14,]), method="number",
+         p.mat = as.matrix(p.mat[14,]), sig.level = 0.05)
 ```
 
-## Linear model {.tabset .tabset-pills}
+### D {.tabset}
 
-### 1
 
-Non-binned response, non-scaled predictors.  
+#### Corr
+Many Weak negative correlations, especially with `time_betw_01_02`, `time_betw_02_03`, and `aucDiff`.  
 
 ```{r}
-lm1 <- lm(lot_yield ~ ., 
-          data = press_summ %>%
-            select(-LOTNO,-time_at_pos,-time_at_neg))
-
-summary(lm1)
+M <- press_summ %>%
+  dplyr::filter(kiln == "D") %>% 
+  dplyr::select(c(-LOTNO,-kiln,-time_at_pos,-time_at_neg)) %>%
+  cor()
+p.mat <- cor.mtest(M)
+corrplot(as.matrix(M[15,]), method="number",
+         p.mat = as.matrix(p.mat[15])
+         , sig.level = 0.05)
 ```
 
-### 2
-
-Binned response, scaled & centered predictors.  
+#### Explore
 
 ```{r}
-press_recipe <- recipe(lot_yield ~ ., data = press_summ) %>% 
-  update_role(LOTNO, new_role = "ID") %>% 
-  step_normalize(all_predictors())
+g1 <- press_summ %>%
+  dplyr::filter(kiln == "D") %>% 
+  ggplot(aes(x=time_betw_01_02, y=lot_yield))+
+  geom_point()+
+  geom_smooth(method="lm")
+g2 <- press_summ %>%
+  dplyr::filter(kiln == "D") %>% 
+  ggplot(aes(x=time_betw_02_03, y=lot_yield))+
+  geom_point()+
+  geom_smooth(method="lm")
+g3 <- press_summ %>%
+  dplyr::filter(kiln == "D") %>% 
+  ggplot(aes(x=aucDiff, y=lot_yield))+
+  geom_point()+
+  geom_smooth(method="lm")
+grid.arrange(g1,g2,g3,nrow=1)
+```
+
+### E {.tabset}
+
+#### Corr
+Strong negative correlations with `sd_press`, `time_greater_03`, and `time_betw_02_03`. As these values increase, lot yields decrease.  
+
+```{r}
+M <- press_summ %>%
+  dplyr::filter(kiln == "E") %>% 
+  dplyr::select(c(-LOTNO,-kiln,-time_at_pos,-time_at_neg)) %>%
+  cor()
+p.mat <- cor.mtest(M)
+corrplot(as.matrix(M[15,]), method = "number",
+         p.mat = as.matrix(p.mat[15,])
+         , sig.level = 0.05)
+```
+
+#### Explore
+
+```{r}
+g1 <- press_summ %>%
+  dplyr::filter(kiln == "E") %>% 
+  ggplot(aes(x=sd_press, y=lot_yield))+
+  geom_point()+
+  geom_smooth(method='lm')
+g2 <- press_summ %>%
+  dplyr::filter(kiln == "E") %>% 
+  ggplot(aes(x=time_greater_03, y=lot_yield,group=time_greater_03))+
+  geom_point()+
+  geom_smooth(method='lm')
+grid.arrange(g1,g2,nrow=1)
+```
+
+### F
+
+No significant correlations.   
+
+```{r}
+M <- press_summ %>%
+  dplyr::filter(kiln == "F") %>% 
+  dplyr::select(c(-LOTNO,-kiln,-time_at_pos,-time_at_neg)) %>%
+  cor()
+p.mat <- cor.mtest(M)
+corrplot(as.matrix(M[15,]), method = "number",
+         p.mat = as.matrix(p.mat[15,])
+         , sig.level = 0.05)
+```
+
+### G
+
+No significant correlations.   
+
+```{r}
+M <- press_summ %>%
+  dplyr::filter(kiln == "G") %>% 
+  dplyr::select(c(-LOTNO,-kiln,-time_at_pos,-time_at_neg)) %>%
+  cor()
+p.mat <- cor.mtest(M)
+corrplot(as.matrix(M[15,]), method = "number",
+         p.mat = as.matrix(p.mat[15,])
+         , sig.level = 0.05)
+```
+
+### H
+
+No significant correlations.   
+
+```{r}
+M <- press_summ %>%
+  dplyr::filter(kiln == "H") %>% 
+  dplyr::select(c(-LOTNO,-kiln,-time_at_pos,-time_at_neg)) %>%
+  cor()
+p.mat <- cor.mtest(M)
+corrplot(as.matrix(M[15,]), method = "number",
+         p.mat = as.matrix(p.mat[15,])
+         , sig.level = 0.05)
+```
+
+## Linear models {.tabset .tabset-pills}
+
+### Glanced
+
+$R^2$ values in general are very poor with the exception of kiln E. Though most of these values are inflated due to training on the entire dataset rather than splitting into test and train sets.   
+
+```{r}
+# linear model on each kiln
+df <- press_summ %>% 
+  dplyr::select(-LOTNO,-time_at_pos,-time_at_neg, -temp_avg)
+
+set.seed(234)
+df_split <- initial_split(df)
+df_train <- training(df_split)
+df_test  <- testing(df_split)
+
+lms <- df  %>% 
+  nest(data = c(-kiln)) %>% 
+  mutate(fit =       map(data, ~lm(lot_yield ~ ., data = .x)),
+         tidied =    map(fit, tidy),
+         glanced =   map(fit, glance),
+         augmented = map(fit, augment)
+         ) 
+
+# glanced
+lm_glance <- lms %>% 
+  unnest(glanced) %>% 
+  select(-data,-fit,-tidied,-augmented) %>% 
+  select(kiln, r.squared,AIC,BIC) %>% 
+  arrange(-r.squared) %>% 
+  mutate_if(is.numeric, round, 5)
+
+kable(lm_glance %>% 
+        left_join(count(press_summ$kiln) %>% 
+                    mutate(kiln = factor(x)) %>% 
+                    select(kiln, freq)) %>% 
+        select(kiln, freq, everything()),
+      format="html") %>% 
+  kable_styling(full_width=T)
+```
+
+### Tidied {.tabset}
+
+```{r}
+# tidied
+lm_tidy <- lms %>% 
+  unnest(tidied) %>% 
+  select(-data,-fit,-glanced,-augmented) %>%
+  arrange(kiln, p.value) %>% 
+  mutate_if(is.numeric, round, 5) %>% 
+  mutate(
+    p.value = ifelse(p.value < .05, 
+                     cell_spec(p.value,"html",color="red"),
+                     cell_spec(p.value,"html",color="black"))
+  )
+```
+
+#### C
+
+```{r}
+kable(lm_tidy %>% dplyr::filter(kiln == "C"), format="html",escape = F) %>% 
+  pack_rows( index=c("C" = 14)) %>% 
+  kable_styling("striped", full_width=T)
+```
+
+#### D
+
+```{r}
+kable(lm_tidy %>% dplyr::filter(kiln == "D"), format="html",escape = F) %>% 
+  pack_rows( index=c("D" = 14)) %>% 
+  kable_styling("striped", full_width=T)
+```
+ 
+#### E
+
+```{r}
+kable(lm_tidy %>% dplyr::filter(kiln == "E"), format="html",escape = F) %>% 
+  pack_rows( index=c("E" = 14)) %>% 
+  kable_styling("striped", full_width=T)
+```
+
+#### F
+
+```{r}
+kable(lm_tidy %>% dplyr::filter(kiln == "F"), format="html",escape = F) %>% 
+  pack_rows( index=c("G" = 14)) %>% 
+  kable_styling("striped", full_width=T)
+```
+
+#### G
+
+```{r}
+kable(lm_tidy %>% dplyr::filter(kiln == "G"), format="html",escape = F) %>% 
+  pack_rows( index=c("G" = 14)) %>% 
+  kable_styling("striped", full_width=T)
+```
+
+#### H
+```{r}
+kable(lm_tidy %>% dplyr::filter(kiln == "H"), format="html",escape = F) %>% 
+  pack_rows( index=c("H" = 14)) %>% 
+  kable_styling("striped", full_width=T)
+```
+
+
+### Augmented
+
+Predicted values versus actual values.  
+
+```{r}
+# augmented
+lms %>% unnest(augmented) %>% 
+  select(-data,-fit,-tidied,-glanced) %>% 
+  ggplot(aes(x=lot_yield, y=.fitted))+
+  geom_pointdensity(show.legend = FALSE)+
+  # geom_point()+
+  geom_abline(lty=2,color='red')+
+  facet_wrap(~kiln)+
+  scale_y_continuous(limits=c(0.6,1))+
+  scale_x_continuous(limits=c(0.6,1))+
+  scale_color_viridis_c()
+```
+
+## Variable importance
+
+To get an idea of which variables are most important we can use LASSO regression to remove the least important variables. We can also test with a random forest variable importance implementation for comparison sake.
+
+### G {.tabset}
+
+#### Linear
+
+Recall the most significant variables from the earlier linear model based on p-value. Low p-value generally indicates variables are not simply due to random effects. The rather low $R^2$ indicates that only about 10% of the variability can be explained by the model.   
+
+```{r}
+kable(lm_tidy %>% dplyr::filter(kiln == "G"), 
+      format="html",
+      caption = paste0("Significant variables by p-value, Model R^2: ",
+                       round(lm_glance$r.squared[[4]], 3)),
+      escape = F) %>%
+  pack_rows( index=c("Kiln G" = 14)) %>%
+  kable_styling("striped", full_width=T)
+```
+
+#### Lasso
+
+LASSO regression requires scaled and centered variables and works by removing variables with high correlation or little importance by adjusting their coefficients to zero. This is still a type of linear regression but generally more reliable than relying on p-value.   
+
+```{r}
+# original data
+df <- press_summ %>% 
+  dplyr::filter(kiln == "G") %>% 
+  # dplyr::select(mean_press:lot_yield, -kiln)
+  dplyr::select(precip:lot_yield, -kiln)
+
+# splits
+set.seed(323)
+pressure_split <- initial_split(df)
+pressure_train <- training(pressure_split)
+pressure_test  <- testing(pressure_split)
+
+# lasso recipe
+pressure_rec <- recipe(lot_yield ~ ., data = pressure_train) %>% 
+  step_normalize(all_numeric(), -all_outcomes()) %>% 
+  prep()
+
+# lasso workflow
+wf <- workflow() %>% 
+  add_recipe(pressure_rec)
+
+# lasso model specification
+lasso_spec <- linear_reg(penalty = tune(), 
+                         mixture = 1) %>% 
+  set_engine("glmnet")
+
+# generate folds for tuning
+set.seed(1434)
+lasso_folds <- vfold_cv(pressure_train)
+
+# generate a grid for tuning
+lambda_grid <- grid_regular(penalty(), levels = 50)
+
+# tune model
+set.seed(211)
+lasso_grid <- tune_grid(
+  wf %>% add_model(lasso_spec),
+  resamples = lasso_folds,
+  grid = lambda_grid
+)
+
+# visualize tuning results
+# lasso_grid %>% collect_metrics() %>%
+#   ggplot(aes(penalty, mean, color=.metric))+
+#   geom_errorbar(aes(ymin = mean - std_err,
+#                     ymax = mean + std_err), alpha = .4)+
+#   geom_point(size=2)+
+#   geom_line(size=1.5)+
+#   scale_x_log10()+
+#   facet_wrap(~.metric,nrow=2,scales="free")
+
+# get best rsq value
+best_rsq <- lasso_grid %>% select_best(metric = "rsq")
+# best_rmse <- lasso_grid %>% select_best(metric = "rmse")
+
+# finalize model wf
+final_lasso_wf <- finalize_workflow(
+  wf %>% add_model(lasso_spec),
+  best_rsq
+  # best_rmse
+)
+
+# finalize model
+final_lasso_fit <- last_fit(final_lasso_wf, pressure_split)
+# save r2
+r2 <- final_lasso_fit %>% collect_metrics() %>% select(.estimate) %>% slice(2)
+
+# visualize variable importance on entire data
+gg_lasso_importance <- final_lasso_wf %>% 
+  fit(df) %>%
+  # fit(pressure_train) %>% 
+  pull_workflow_fit() %>% 
+  vi(lambda = best_rsq$penalty) %>% 
+  mutate(Importance = abs(Importance),
+         Variable = fct_reorder(Variable, Importance)) %>% 
+  ggplot(aes(x=Importance,y=Variable,fill=Sign))+
+  geom_col()+
+  labs(y=NULL)+
+  scale_x_continuous(expand = c(0,0))+
+  ggtitle(paste0("Variable importance using LASSO"))+
+  labs(subtitle = paste0("Model R^2: ", round(r2,4)))
+
+gg_lasso_importance
+```
+
+#### Random Forest
+
+```{r}
+# split train/test
+set.seed(3332)
+pressure_split <- initial_split(df)
+pressure_train <- training(pressure_split)
+pressure_test  <- testing(pressure_split)
+
+# rf recipe
+pressure_rec <- recipe(lot_yield ~ ., data = pressure_train) %>% 
+  prep()
   
-press_prep <- prep(press_recipe)
-
-lm2 <- lm(lot_yield ~ ., 
-          data = juice(press_prep) %>% 
-            select(-LOTNO,-time_at_pos,-time_at_neg))
-
-summary(lm2)
-```
-
-## RF Model
-
-Try random forest to predict binned levels `A` thru `F` of `lot_yields`.  
-
-```{r}
-# train and test sets
-set.seed(123)
-press_split <- initial_split(press_summ_binned)
-press_train <- training(press_split)
-press_test <- testing(press_split)
-
-# recipe
-press_recipe <- recipe(lot_yield_binned ~ ., 
-                       data = press_train %>% select(-lot_yield)) %>% 
-  update_role(LOTNO, new_role = "ID") %>% 
-  step_normalize(all_predictors())
-# prep
-press_prep <- prep(press_recipe)
-
-# model specs
-tune_spec <- rand_forest(
-  mtry = tune(),
-  trees = 1000, 
-  min_n = tune()
-  ) %>% 
-  set_mode("classification") %>% 
-  set_engine("ranger")
+# rf model specification
+rf_spec <- rand_forest(mode="regression", 
+                       mtry  = tune(), 
+                       trees = 1000, 
+                       min_n = tune()) %>% 
+  set_engine("randomForest")
 
 # workflow
-tune_wf <- workflow() %>% 
-  add_recipe(press_recipe) %>% 
+wf <- workflow() %>% 
+  add_recipe(pressure_rec)
 
-# train hyperparameters
-set.seed(234)
-press_folds <- vfold_cv(press_train)
+# generate folds for tuning
+set.seed(131)
+rf_folds <- vfold_cv(pressure_train)
 
-# doParallel::registerDoParallel()
-
-set.seed(344)
+# tune on non-specific grid
 tune_res <- tune_grid(
-  tune_wf,
-  resamples = press_folds,
+  wf %>% add_model(rf_spec),
+  resamples = rf_folds,
   grid = 20
-)
-
-# tune_res %>% collect_metrics()
-# tune_res %>% select_best(metric='accuracy')
-
-tune_res %>% 
-  collect_metrics() %>% 
-  filter(.metric == "roc_auc") %>% 
-  select(mean, min_n, mtry) %>% 
-  pivot_longer(min_n:mtry,
-               values_to = "value",
-               names_to = "parameter") %>% 
-  ggplot(aes(value,mean,color=parameter))+
-  geom_point(show.legend=FALSE)+
-  geom_line(show.legend=FALSE)+
-  facet_wrap(~parameter,scales='free')
-
-# select value ranges to tune again
-rf_grid <- grid_regular(
-  mtry(range = c(3,8)),
-  min_n(range = c(20, 40)),
-  levels = 5
   )
-# tune again
-set.seed(341)
+
+# visualize first tuning results
+# tune_res %>% collect_metrics() %>%
+#   filter(.metric == "rsq") %>%
+#   select(mean, min_n, mtry) %>%
+#   pivot_longer(min_n:mtry, values_to ="value", names_to = "parameter") %>%
+#   ggplot(aes(value,mean,color=parameter))+
+#   geom_point()+
+#   geom_line()+
+#   facet_wrap(~parameter, nrow=2, scales="free")
+
+# generate more specific grid
+rf_grid <- grid_regular(
+  mtry(range = c(8,15)),
+  min_n(range = c(15,35)),
+  levels = 6
+  )
+
+# tune on more specific grid
 regular_res <- tune_grid(
-  tune_wf,
-  resamples = press_folds,
+  wf %>% add_model(rf_spec),
+  resamples = rf_folds,
   grid = rf_grid
-)
-regular_res %>% 
-  collect_metrics() %>% 
-  filter(.metric == "roc_auc") %>% 
-  mutate(min_n = factor(min_n)) %>% 
-  ggplot(aes(mtry,mean,color=min_n))+
-  geom_line()+
-  geom_point()
-kll
-best_auc <- select_best(regular_res, "roc_auc")
+  )
 
+# visualize second tuning results
+# regular_res %>% collect_metrics() %>%
+#   filter(.metric == "rsq") %>%
+#   mutate(min_n = as.factor(min_n)) %>%
+#   ggplot(aes(mtry, mean, color = min_n))+
+#   geom_point()+
+#   geom_line(size=1.2)
+
+# store best models
+best_rsq <- regular_res %>% select_best(metric="rsq")
+best_rmse <- regular_res %>% select_best(metric="rmse")
+
+# finalize model
 final_rf <- finalize_model(
-  tune_spec,
-  best_auc
+  rf_spec,
+  best_rsq
 )
 
-library(vip)
-final_rf %>% 
-  set_engine("ranger", importance = "permutation") %>% 
-  fit(lot_yield_binned ~ ., 
-      data = juice(press_prep) %>% select(-LOTNO)) %>% 
-  vip(geom='point')
+# variable importance on training
+# final_rf %>% 
+#   set_engine("randomForest") %>% 
+#   fit(lot_yield ~ ., juice(pressure_rec)) %>% 
+#   vip(geom = "point")
 
-final_wf <- workflow() %>% 
-  add_recipe(press_recipe) %>% 
+# final random forest workflow
+final_rf_wf <- workflow() %>% 
+  add_recipe(pressure_rec) %>% 
   add_model(final_rf)
 
-final_res <- final_wf %>% 
-  last_fit(press_split)
-    
+# fit model on test set
+final_rf_res <- final_rf_wf %>% 
+  last_fit(pressure_split)
 
-final_res %>% 
-  collect_metrics()
+# metrics for final model
+r2 <- final_rf_res %>% collect_metrics() %>% select(.estimate) %>% slice(2)
 
+# plot predictions vs results on test set
+# final_rf_res %>% collect_predictions() %>% 
+#   ggplot(aes(.pred, lot_yield))+
+#   geom_point()+geom_abline(lty=2,color='red')
+
+# final model
+# final_rf_model <- fit(final_rf_wf, df)
+
+# variable importance on all data
+gg_rf_importance <- final_rf %>% 
+  set_engine("randomForest") %>% 
+  fit(lot_yield ~ ., df) %>% 
+  vip(geom = "point")+
+  ggtitle(paste0("Variable importance using RandomForest"))+
+  labs(subtitle = paste0("Model R^2: ", round(r2,4)))
+
+gg_rf_importance
 ```
 
+### H {.tabset}
+
+#### Linear
+
+Recall the most significant variables from the earlier linear model based on p-value. Low p-value generally indicates variables are not simply due to random effects. The rather low $R^2$ indicates that only about 10% of the variability can be explained by the model.   
 
 ```{r}
-library(tidymodels)
-library(randomForest)
+kable(lm_tidy %>% dplyr::filter(kiln == "H"), 
+      format="html",
+      caption = paste0("Significant variables by p-value, Model R^2: ",
+                       round(lm_glance$r.squared[[5]], 3)),
+      escape = F) %>%
+  pack_rows( index=c("Kiln H" = 14)) %>%
+  kable_styling("striped", full_width=T)
+```
 
-# press_boot <- bootstraps(press_summ)
+#### Lasso
 
-press_recipe <- recipe(lot_yield ~ ., data = press_summ) %>% 
-  update_role(LOTNO, new_role = "ID") %>% 
-  step_normalize(all_predictors())
-  
-press_prep <- prep(press_recipe)
+LASSO regression requires scaled and centered variables and works by removing variables with high correlation or little importance by adjusting their coefficients to zero. This is still a type of linear regression but generally more reliable than relying on p-value.   
 
-juice(press_prep) %>% 
-  dplyr::select(-LOTNO) %>% 
-  pivot_longer(cols = is.numeric) %>% 
-  mutate_if(is.character, factor) %>% 
-  ggplot(aes(x=value))+
-  geom_freqpoly()+
-  facet_wrap(~name, scales='free')
+```{r}
+# original data
+df <- press_summ %>% 
+  dplyr::filter(kiln == "H") %>% 
+  # dplyr::select(mean_press:lot_yield, -kiln)
+  dplyr::select(precip:lot_yield, -kiln)
 
-rf_spec <- rand_forest(trees = 1000) %>% 
-  set_mode("regression") %>% 
-  set_engine("randomForest")
-  
-press_wf <- workflow() %>% 
-  add_recipe(press_recipe) %>% 
-  add_model(rf_spec)
+# splits
+set.seed(32)
+pressure_split <- initial_split(df)
+pressure_train <- training(pressure_split)
+pressure_test  <- testing(pressure_split)
 
-press_wf
+# lasso recipe
+pressure_rec <- recipe(lot_yield ~ ., data = pressure_train) %>% 
+  step_normalize(all_numeric(), -all_outcomes()) %>% 
+  prep()
 
-press_res <- fit_resamples(
-  press_wf,
-  resamples = press_boot,
-  control = control_resamples(save_pred=TRUE,
-                              verbose=TRUE)
+# lasso workflow
+wf <- workflow() %>% 
+  add_recipe(pressure_rec)
+
+# lasso model specification
+lasso_spec <- linear_reg(penalty = tune(), 
+                         mixture = 1) %>% 
+  set_engine("glmnet")
+
+# generate folds for tuning
+set.seed(144)
+lasso_folds <- vfold_cv(pressure_train)
+
+# generate a grid for tuning
+lambda_grid <- grid_regular(penalty(), levels = 50)
+
+# tune model
+set.seed(211)
+lasso_grid <- tune_grid(
+  wf %>% add_model(lasso_spec),
+  resamples = lasso_folds,
+  grid = lambda_grid
 )
 
-press_res %>% collect_metrics()
+# visualize tuning results
+# lasso_grid %>% collect_metrics() %>% 
+#   ggplot(aes(penalty, mean, color=.metric))+
+#   geom_errorbar(aes(ymin = mean - std_err,
+#                     ymax = mean + std_err), alpha = .4)+
+#   geom_point(size=2)+
+#   geom_line(size=1.5)+
+#   scale_x_log10()+
+#   facet_wrap(~.metric,nrow=2,scales="free")
 
-press_res %>% collect_predictions()
+# get best rsq value
+best_rsq <- lasso_grid %>% select_best(metric = "rsq")
+# best_rmse <- lasso_grid %>% select_best(metric = "rmse")
 
-library(vip)
+# finalize model wf
+final_lasso_wf <- finalize_workflow(
+  wf %>% add_model(lasso_spec),
+  best_rsq
+  # best_rmse
+)
 
-rf_spec %>% 
-  set_engine('ranger', importance = 'permutation') %>% 
-  fit(lot_yield ~ ., data = juice(press_prep) %>% select(-LOTNO)) %>% 
-  vip(geom = "point")
+# finalize model
+final_lasso_fit <- last_fit(final_lasso_wf, pressure_split)
+# save r2
+r2 <- final_lasso_fit %>% collect_metrics() %>% select(.estimate) %>% slice(2)
 
+# visualize variable importance on entire data
+gg_lasso_importance <- final_lasso_wf %>% 
+  fit(df) %>%
+  # fit(pressure_train) %>% 
+  pull_workflow_fit() %>% 
+  vi(lambda = best_rsq$penalty) %>% 
+  mutate(Importance = abs(Importance),
+         Variable = fct_reorder(Variable, Importance)) %>% 
+  ggplot(aes(x=Importance,y=Variable,fill=Sign))+
+  geom_col()+
+  labs(y=NULL)+
+  scale_x_continuous(expand = c(0,0))+
+  ggtitle(paste0("Variable importance using LASSO"))+
+  labs(subtitle = paste0("Model R^2: ", round(r2,4)))
+
+gg_lasso_importance
 ```
+
+#### Random Forest
 
 ```{r}
+# split train/test
+set.seed(3332)
+pressure_split <- initial_split(df)
+pressure_train <- training(pressure_split)
+pressure_test  <- testing(pressure_split)
 
+# rf recipe
+pressure_rec <- recipe(lot_yield ~ ., data = pressure_train) %>% 
+  prep()
+  
+# rf model specification
+rf_spec <- rand_forest(mode="regression", 
+                       mtry  = tune(), 
+                       trees = 1000, 
+                       min_n = tune()) %>% 
+  set_engine("randomForest")
 
-lm1 <- lm(lot_yield ~ ., data=juice(press_prep) %>% select(-LOTNO))
-summary(lm1)
+# workflow
+wf <- workflow() %>% 
+  add_recipe(pressure_rec)
+
+# generate folds for tuning
+set.seed(131)
+rf_folds <- vfold_cv(pressure_train)
+
+# tune on non-specific grid
+tune_res <- tune_grid(
+  wf %>% add_model(rf_spec),
+  resamples = rf_folds,
+  grid = 20
+  )
+
+# visualize first tuning results
+# tune_res %>% collect_metrics() %>%
+#   filter(.metric == "rsq") %>%
+#   select(mean, min_n, mtry) %>%
+#   pivot_longer(min_n:mtry, values_to ="value", names_to = "parameter") %>%
+#   ggplot(aes(value,mean,color=parameter))+
+#   geom_point()+
+#   geom_line()+
+#   facet_wrap(~parameter, nrow=2, scales="free")
+
+# generate more specific grid
+rf_grid <- grid_regular(
+  mtry(range = c(1,5)),
+  min_n(range = c(10,30)),
+  levels = 7
+  )
+
+# tune on more specific grid
+regular_res <- tune_grid(
+  wf %>% add_model(rf_spec),
+  resamples = rf_folds,
+  grid = rf_grid
+  )
+
+# visualize second tuning results
+# regular_res %>% collect_metrics() %>% 
+#   filter(.metric == "rsq") %>% 
+#   mutate(min_n = as.factor(min_n)) %>% 
+#   ggplot(aes(mtry, mean, color = min_n))+
+#   geom_point()+
+#   geom_line(size=1.2)
+
+# store best models
+best_rsq <- regular_res %>% select_best(metric="rsq")
+best_rmse <- regular_res %>% select_best(metric="rmse")
+
+# finalize model
+final_rf <- finalize_model(
+  rf_spec,
+  best_rsq
+)
+
+# variable importance on training
+# final_rf %>% 
+#   set_engine("randomForest") %>% 
+#   fit(lot_yield ~ ., juice(pressure_rec)) %>% 
+#   vip(geom = "point")
+
+# final random forest workflow
+final_rf_wf <- workflow() %>% 
+  add_recipe(pressure_rec) %>% 
+  add_model(final_rf)
+
+# fit model on test set
+final_rf_res <- final_rf_wf %>% 
+  last_fit(pressure_split)
+
+# metrics for final model
+r2 <- final_rf_res %>% collect_metrics() %>% select(.estimate) %>% slice(2)
+
+# plot predictions vs results on test set
+# final_rf_res %>% collect_predictions() %>% 
+#   ggplot(aes(.pred, lot_yield))+
+#   geom_point()+geom_abline(lty=2,color='red')
+
+# final model
+# final_rf_model <- fit(final_rf_wf, df)
+
+# variable importance on all data
+gg_rf_importance <- final_rf %>% 
+  set_engine("randomForest") %>% 
+  fit(lot_yield ~ ., df) %>% 
+  vip(geom = "point")+
+  ggtitle(paste0("Variable importance using RandomForest"))+
+  labs(subtitle = paste0("Model R^2: ", round(r2,4)))
+
+gg_rf_importance
 ```
 
-## Modeling
+### D {.tabset}
 
-Since the response data is skewed heavily we can bin values by quantile distribution.  
+#### Linear
 
-
-
+Recall the most significant variables from the earlier linear model based on p-value. Low p-value generally indicates variables are not simply due to random effects. The rather low $R^2$ indicates that only about 10% of the variability can be explained by the model.   
 
 ```{r}
-glimpse(press_summ)
-
-# get lot yields by summarising fired and rejects
-lot_yields <- 
-  df_yields %>% 
-    group_by(LOTNO) %>% 
-    dplyr::summarise(
-      lot_items_fired = sum(TOTAL_ITEM_FIRED),
-      lot_items_rejected = sum(TOTAL_ITEM_REJECTED),
-      lot_yield = (lot_items_fired - lot_items_rejected) / lot_items_fired
-    ) %>% 
-    dplyr::select(LOTNO, lot_yield)
-
-# join with features, remove 20 missing lot yield values
-press_summ <- left_join(press_summ, lot_yields) %>% 
-  na.omit()
-
-
-
+kable(lm_tidy %>% dplyr::filter(kiln == "D"), 
+      format="html",
+      caption = paste0("Significant variables by p-value, Model R^2: ",
+                       round(lm_glance$r.squared[[2]], 3)),
+      escape = F) %>%
+  pack_rows( index=c("Kiln D" = 14)) %>%
+  kable_styling("striped", full_width=T)
 ```
 
+#### Lasso
+
+LASSO regression requires scaled and centered variables and works by removing variables with high correlation or little importance by adjusting their coefficients to zero. This is still a type of linear regression but generally more reliable than relying on p-value.   
+
+```{r}
+# original data
+df <- press_summ %>% 
+  dplyr::filter(kiln == "D") %>% 
+  # dplyr::select(mean_press:lot_yield, -kiln)
+  dplyr::select(precip:lot_yield, -kiln)
+
+# splits
+set.seed(32)
+pressure_split <- initial_split(df)
+pressure_train <- training(pressure_split)
+pressure_test  <- testing(pressure_split)
+
+# lasso recipe
+pressure_rec <- recipe(lot_yield ~ ., data = pressure_train) %>% 
+  step_normalize(all_numeric(), -all_outcomes()) %>% 
+  prep()
+
+# lasso workflow
+wf <- workflow() %>% 
+  add_recipe(pressure_rec)
+
+# lasso model specification
+lasso_spec <- linear_reg(penalty = tune(), 
+                         mixture = 1) %>% 
+  set_engine("glmnet")
+
+# generate folds for tuning
+set.seed(144)
+lasso_folds <- vfold_cv(pressure_train)
+
+# generate a grid for tuning
+lambda_grid <- grid_regular(penalty(), levels = 50)
+
+# tune model
+set.seed(211)
+lasso_grid <- tune_grid(
+  wf %>% add_model(lasso_spec),
+  resamples = lasso_folds,
+  grid = lambda_grid
+)
+
+# visualize tuning results
+# lasso_grid %>% collect_metrics() %>% 
+#   ggplot(aes(penalty, mean, color=.metric))+
+#   geom_errorbar(aes(ymin = mean - std_err,
+#                     ymax = mean + std_err), alpha = .4)+
+#   geom_point(size=2)+
+#   geom_line(size=1.5)+
+#   scale_x_log10()+
+#   facet_wrap(~.metric,nrow=2,scales="free")
+
+# get best rsq value
+best_rsq <- lasso_grid %>% select_best(metric = "rsq")
+# best_rmse <- lasso_grid %>% select_best(metric = "rmse")
+
+# finalize model wf
+final_lasso_wf <- finalize_workflow(
+  wf %>% add_model(lasso_spec),
+  best_rsq
+  # best_rmse
+)
+
+# finalize model
+final_lasso_fit <- last_fit(final_lasso_wf, pressure_split)
+# save r2
+r2 <- final_lasso_fit %>% collect_metrics() %>% select(.estimate) %>% slice(2)
+
+# visualize variable importance on entire data
+gg_lasso_importance <- final_lasso_wf %>% 
+  fit(df) %>%
+  # fit(pressure_train) %>% 
+  pull_workflow_fit() %>% 
+  vi(lambda = best_rsq$penalty) %>% 
+  mutate(Importance = abs(Importance),
+         Variable = fct_reorder(Variable, Importance)) %>% 
+  ggplot(aes(x=Importance,y=Variable,fill=Sign))+
+  geom_col()+
+  labs(y=NULL)+
+  scale_x_continuous(expand = c(0,0))+
+  ggtitle(paste0("Variable importance using LASSO"))+
+  labs(subtitle = paste0("Model R^2: ", round(r2,4)))
+
+gg_lasso_importance
+```
+
+#### Random Forest
+
+```{r}
+# split train/test
+set.seed(3332)
+pressure_split <- initial_split(df)
+pressure_train <- training(pressure_split)
+pressure_test  <- testing(pressure_split)
+
+# rf recipe
+pressure_rec <- recipe(lot_yield ~ ., data = pressure_train) %>% 
+  prep()
+  
+# rf model specification
+rf_spec <- rand_forest(mode="regression", 
+                       mtry  = tune(), 
+                       trees = 1000, 
+                       min_n = tune()) %>% 
+  set_engine("randomForest")
+
+# workflow
+wf <- workflow() %>% 
+  add_recipe(pressure_rec)
+
+# generate folds for tuning
+set.seed(131)
+rf_folds <- vfold_cv(pressure_train)
+
+# tune on non-specific grid
+tune_res <- tune_grid(
+  wf %>% add_model(rf_spec),
+  resamples = rf_folds,
+  grid = 20
+  )
+
+# visualize first tuning results
+# tune_res %>% collect_metrics() %>%
+#   filter(.metric == "rsq") %>%
+#   select(mean, min_n, mtry) %>%
+#   pivot_longer(min_n:mtry, values_to ="value", names_to = "parameter") %>%
+#   ggplot(aes(value,mean,color=parameter))+
+#   geom_point()+
+#   geom_line()+
+#   facet_wrap(~parameter, nrow=2, scales="free")
+
+# generate more specific grid
+rf_grid <- grid_regular(
+  min_n(range = c(1,20)),
+  mtry(range = c(10,16)),
+  levels = 6
+  )
+
+# tune on more specific grid
+regular_res <- tune_grid(
+  wf %>% add_model(rf_spec),
+  resamples = rf_folds,
+  grid = rf_grid
+  )
+
+# visualize second tuning results
+# regular_res %>% collect_metrics() %>% 
+#   filter(.metric == "rsq") %>% 
+#   mutate(min_n = as.factor(min_n)) %>% 
+#   ggplot(aes(mtry, mean, color = min_n))+
+#   geom_point()+
+#   geom_line(size=1.2)
+
+# store best models
+best_rsq <- regular_res %>% select_best(metric="rsq")
+best_rmse <- regular_res %>% select_best(metric="rmse")
+
+# finalize model
+final_rf <- finalize_model(
+  rf_spec,
+  best_rsq
+)
+
+# variable importance on training
+# final_rf %>% 
+#   set_engine("randomForest") %>% 
+#   fit(lot_yield ~ ., juice(pressure_rec)) %>% 
+#   vip(geom = "point")
+
+# final random forest workflow
+final_rf_wf <- workflow() %>% 
+  add_recipe(pressure_rec) %>% 
+  add_model(final_rf)
+
+# fit model on test set
+final_rf_res <- final_rf_wf %>% 
+  last_fit(pressure_split)
+
+# metrics for final model
+r2 <- final_rf_res %>% collect_metrics() %>% select(.estimate) %>% slice(2)
+
+# plot predictions vs results on test set
+# final_rf_res %>% collect_predictions() %>% 
+#   ggplot(aes(.pred, lot_yield))+
+#   geom_point()+geom_abline(lty=2,color='red')
+
+# final model
+# final_rf_model <- fit(final_rf_wf, df)
+
+# variable importance on all data
+gg_rf_importance <- final_rf %>% 
+  set_engine("randomForest") %>% 
+  fit(lot_yield ~ ., df) %>% 
+  vip(geom = "point")+
+  ggtitle(paste0("Variable importance using RandomForest"))+
+  labs(subtitle = paste0("Model R^2: ", round(r2,4)))
+
+gg_rf_importance
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Item yields analysis
+
+Rather than segregate into kilns, we group by item.  
+
+```{r}
+press_summ
+df_merged
+
+
+
+# df yields join with press summ ... do pressures impact yields of items?
+
+
+# df merged/defect join with press summ ... do pressures impact on occurence of defects?
+
+```
 

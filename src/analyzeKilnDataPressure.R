@@ -730,3 +730,4 @@ scale_y_continuous(name = "Kiln temp (F)",
   ) +
   facet_wrap(~LOTNO)
 
+
