@@ -33,6 +33,7 @@ library(kableExtra)
 library(gridExtra)
 library(ggpointdensity)
 library(vip)
+library(glmnet)
 
 # set theme
 theme_set(theme_minimal())
@@ -63,9 +64,27 @@ kilns_All <- bind_rows(kilns_C[c(1:10,22,23)],
                         kilns_H[c(1:10,40,41)])
 ```
 
+# Summary
+
+**Feature generation**  
+Generated new features using primarily pressure data from the kiln logs. These new features, along with weather data, were then merged with both lot yields and item yields to determine if any of these factors influence yields in any way.  
+
+**Lot yields**  
+With lot yields, LASSO regression was used to eliminate the least important variables on a per kiln basis. When testing for variable importance on each kiln, none of the generated features were determined to be beneficial to the model. In other words, simply using the mean value of the lot yield produced better results than including any of the generated features.  
+
+**Item yields**  
+Some of the top occurring items were also tested. Unfortunately, similar results were observed where most features end up being eliminated. In some cases, the variables show very minor importance, which upon further investigation seems to be due to outliers in the dataset.  
+
+**Next?**  
+Its appears that none of the features, when singled out, play a significant linear role in determination of yields, whether it be yields of entire kilns, or of specific items within the kilns.  
+
+When looking at the *Feature plots* below, we ideally want to see a horizontal separation of the colored *Yields* points which would indicate that a change in that feature is responsible for a change in the yield value. Unfortunately, most of the below models indicate that a horizontal line (the mean yield value) has more predictive power than using any of the currently generated features.  
+
+We may need to look at additional features. It's also possible there are more complex interactions between the features not accounted for in these models.  
+
 # Feature generation
 
-Using the kiln pressure data we can generate features to aid in concreteley determining whether certain patterns produce better yields. Some of the features discussed include:  
+Using the kiln pressure data we can generate features and determine if they have an effect on yields. Some of the features discussed include:  
 
   * Area between **setpoint** and **average kiln temperature** (completed)
   * Time spent at positive **pressure** between 0 and 1000 minutes (replaced)
@@ -77,7 +96,7 @@ Using the kiln pressure data we can generate features to aid in concreteley dete
     + Mean of **pressure**
     + Add weather data once again?
 
-Area under the curve was originally going to be calculated but after some thought, time spent within the pressure ranges seemed a more useful metric. Could potentially revisit an AUC calculation later on. 
+Durations between **(0.01 <= pressure <= 0.03)** were split into: **(0.01 <= pressure < 0.02)** and **(0.02 <= pressure < 0.03)**.  
 
 ```{r}
 press_calcs <- kilns_All %>% 
@@ -108,7 +127,7 @@ press_calcs <- press_calcs %>%
     press_neg = if_else((pressure <  0) & (time <= index_1200F), pressure, NULL),
     # get all pressures below 1200F point for easy mean, sd calcs
     press_1200F = if_else(time <= index_1200F, pressure, NULL),
-
+    
     # segregate pressures into range columns
     press_greater_03 = if_else((pressure >= .03) &                    (time <= index_1200F), pressure, NULL),
     press_betw_02_03 = if_else((pressure >= .02) & (pressure < .03) & (time <= index_1200F), pressure, NULL),
@@ -149,7 +168,12 @@ press_summ <- press_calcs %>%
     time_betw_02_03 = sum(press_betw_02_03_count, na.rm=TRUE),
     time_betw_01_02 = sum(press_betw_01_02_count, na.rm=TRUE),
     time_betw_00_01 = sum(press_betw_00_01_count, na.rm=TRUE),
-    time_less_00    = sum(press_less_00_count,    na.rm=TRUE)
+    time_less_00    = sum(press_less_00_count,    na.rm=TRUE),
+    
+    # pos and neg AUC pressures
+    AUC_pos_press = sum(press_pos, na.rm=TRUE),
+    AUC_neg_press = sum(abs(press_neg), na.rm=TRUE)
+    
   )
 
 # join summarised features to original pressure data for easy plotting and verification
@@ -204,23 +228,10 @@ lot_yields <-
 press_summ <- left_join(press_summ, lot_yields) %>% 
   na.omit()
 
-#
-# significance function
-cor.mtest <- function(mat, ...) {
-    mat <- as.matrix(mat)
-    n <- ncol(mat)
-    p.mat<- matrix(NA, n, n)
-    diag(p.mat) <- 0
-    for (i in 1:(n - 1)) {
-        for (j in (i + 1):n) {
-            tmp <- cor.test(mat[, i], mat[, j], ...)
-            p.mat[i, j] <- p.mat[j, i] <- tmp$p.value
-        }
-    }
-  colnames(p.mat) <- rownames(p.mat) <- colnames(mat)
-  p.mat
-}
-
+# remove zero value lot yields as outliers
+press_summ <- press_summ %>% 
+  mutate(lot_yield = ifelse( (lot_yield < .5), NA, lot_yield)) %>% 
+  na.omit()
 ```
 
 # Visualize features {.tabset .tabset-pills .tabset-fade}
@@ -513,258 +524,23 @@ press_joined %>%
   facet_wrap(~LOTNO)
 ```
 
-# Distribution of features {.tabset .tabset-pills}
 
-Distribution check of new features shows generally skewed and heavy-tailed data.    
+# Variable importance
 
-## All features/kilns
+## by Lot yield
 
-```{r}
-# pivot data and plot histograms
-press_summ %>%
-  dplyr::select(-LOTNO) %>% 
-  dplyr::select(time_at_pos:lot_yield) %>% 
-  pivot_longer(cols = is.numeric) %>% 
-  mutate_if(is.character, factor) %>% 
-  ggplot(aes(x=value))+
-  geom_freqpoly(bins=15)+
-  facet_wrap(~name, scales='free')
-```
+Do any of these features have an impact on overall lot yields for each kiln? In general it seems the answer is still "maybe?".  
 
-## mean_press
+When fitting standard linear models using all available predictors (see table below), $adjusted R^2$ values are either low or negative. Low values indicate high probability that the effect is random (regardless of significant $p.values$ in the model), while negative values indicate that the resulting linear model is worse fitting than a horizontal line.  
 
-Mean pressure while temperature is less than 1200F is much higher for kilns G and H.  
+Although low $p.values$ are often used for variable selection or pruning, the practice is frowned upon. We use LASSO regression (a type of linear regression) in this case which works by shrinking the coefficients of less significant variables.  
 
-```{r}
-press_summ %>%
-  mutate(kiln = as.factor(str_extract(LOTNO, "[:alpha:]"))) %>% 
-  dplyr::select(-LOTNO) %>%
-  dplyr::select(mean_press,kiln) %>% 
-  ggplot(aes(x=mean_press))+
-  geom_vline(aes(xintercept=0),linetype='dashed',color='red')+
-  geom_freqpoly(bins=15)+
-  facet_wrap(~kiln)
-```
-
-## time_less_00
-
-```{r}
-press_summ %>%
-  mutate(kiln = as.factor(str_extract(LOTNO, "[:alpha:]"))) %>% 
-  dplyr::select(-LOTNO) %>%
-  dplyr::select(time_less_00,kiln) %>% 
-  ggplot(aes(x=time_less_00))+
-  geom_vline(aes(xintercept=0),linetype='dashed',color='red')+
-  geom_freqpoly(bins=15)+
-  facet_wrap(~kiln)
-```
-
-## time_betw_00_01
-
-```{r}
-press_summ %>%
-  mutate(kiln = as.factor(str_extract(LOTNO, "[:alpha:]"))) %>% 
-  dplyr::select(-LOTNO) %>%
-  dplyr::select(time_betw_00_01,kiln) %>% 
-  ggplot(aes(x=time_betw_00_01))+
-  geom_vline(aes(xintercept=0),linetype='dashed',color='red')+
-  geom_freqpoly(bins=15)+
-  facet_wrap(~kiln)
-```
-
-## time_betw_01_02
-
-Kilns G (especially) and H have far more time between .01 and .02 pressures.  
-
-```{r}
-press_summ %>%
-  mutate(kiln = as.factor(str_extract(LOTNO, "[:alpha:]"))) %>% 
-  dplyr::select(-LOTNO) %>%
-  dplyr::select(time_betw_01_02,kiln) %>% 
-  ggplot(aes(x=time_betw_01_02))+
-  geom_vline(aes(xintercept=0),linetype='dashed',color='red')+
-  geom_freqpoly(bins=15)+
-  facet_wrap(~kiln)
-```
-
-## time_betw_02_03
-
-Kilns G (especially) and H have far more time between .02 and .03 pressures.  
-
-```{r}
-press_summ %>%
-  mutate(kiln = as.factor(str_extract(LOTNO, "[:alpha:]"))) %>% 
-  dplyr::select(-LOTNO) %>%
-  dplyr::select(time_betw_02_03,kiln) %>% 
-  ggplot(aes(x=time_betw_02_03))+
-  geom_vline(aes(xintercept=0),linetype='dashed',color='red')+
-  geom_freqpoly(bins=15)+
-  facet_wrap(~kiln)
-```
-
-## time_greater_03
-
-```{r}
-press_summ %>%
-  mutate(kiln = as.factor(str_extract(LOTNO, "[:alpha:]"))) %>% 
-  dplyr::select(-LOTNO) %>%
-  dplyr::select(time_greater_03,kiln) %>% 
-  ggplot(aes(x=time_greater_03))+
-  geom_vline(aes(xintercept=0),linetype='dashed',color='red')+
-  geom_freqpoly(bins=15)+
-  facet_wrap(~kiln)
-```
-
-# Lot yields analysis 
-
-## Corrplots {.tabset .tabet-pills}
-
-Quick check of linear correlation of lot yields versus all features (including temps).  
-Only kiln E exhibits significant linear correlations (p > 0.05) with any pressure features.   
-
-### C
-
-No significant correlations.   
-
-```{r}
-M <- press_summ %>%
-  dplyr::filter(kiln == "C") %>% 
-  dplyr::select(c(-LOTNO,-kiln,-time_at_pos,-time_at_neg)) %>%
-  cor()
-M <- M[-9,-9]
-p.mat <- cor.mtest(M)
-# corrplot(as.matrix(M[8,]), method="number",
-#          p.mat = as.matrix(p.mat[8,])
-#          , sig.level = 0.05)
-corrplot(as.matrix(M[14,]), method="number",
-         p.mat = as.matrix(p.mat[14,]), sig.level = 0.05)
-```
-
-### D {.tabset}
-
-
-#### Corr
-Many Weak negative correlations, especially with `time_betw_01_02`, `time_betw_02_03`, and `aucDiff`.  
-
-```{r}
-M <- press_summ %>%
-  dplyr::filter(kiln == "D") %>% 
-  dplyr::select(c(-LOTNO,-kiln,-time_at_pos,-time_at_neg)) %>%
-  cor()
-p.mat <- cor.mtest(M)
-corrplot(as.matrix(M[15,]), method="number",
-         p.mat = as.matrix(p.mat[15])
-         , sig.level = 0.05)
-```
-
-#### Explore
-
-```{r}
-g1 <- press_summ %>%
-  dplyr::filter(kiln == "D") %>% 
-  ggplot(aes(x=time_betw_01_02, y=lot_yield))+
-  geom_point()+
-  geom_smooth(method="lm")
-g2 <- press_summ %>%
-  dplyr::filter(kiln == "D") %>% 
-  ggplot(aes(x=time_betw_02_03, y=lot_yield))+
-  geom_point()+
-  geom_smooth(method="lm")
-g3 <- press_summ %>%
-  dplyr::filter(kiln == "D") %>% 
-  ggplot(aes(x=aucDiff, y=lot_yield))+
-  geom_point()+
-  geom_smooth(method="lm")
-grid.arrange(g1,g2,g3,nrow=1)
-```
-
-### E {.tabset}
-
-#### Corr
-Strong negative correlations with `sd_press`, `time_greater_03`, and `time_betw_02_03`. As these values increase, lot yields decrease.  
-
-```{r}
-M <- press_summ %>%
-  dplyr::filter(kiln == "E") %>% 
-  dplyr::select(c(-LOTNO,-kiln,-time_at_pos,-time_at_neg)) %>%
-  cor()
-p.mat <- cor.mtest(M)
-corrplot(as.matrix(M[15,]), method = "number",
-         p.mat = as.matrix(p.mat[15,])
-         , sig.level = 0.05)
-```
-
-#### Explore
-
-```{r}
-g1 <- press_summ %>%
-  dplyr::filter(kiln == "E") %>% 
-  ggplot(aes(x=sd_press, y=lot_yield))+
-  geom_point()+
-  geom_smooth(method='lm')
-g2 <- press_summ %>%
-  dplyr::filter(kiln == "E") %>% 
-  ggplot(aes(x=time_greater_03, y=lot_yield,group=time_greater_03))+
-  geom_point()+
-  geom_smooth(method='lm')
-grid.arrange(g1,g2,nrow=1)
-```
-
-### F
-
-No significant correlations.   
-
-```{r}
-M <- press_summ %>%
-  dplyr::filter(kiln == "F") %>% 
-  dplyr::select(c(-LOTNO,-kiln,-time_at_pos,-time_at_neg)) %>%
-  cor()
-p.mat <- cor.mtest(M)
-corrplot(as.matrix(M[15,]), method = "number",
-         p.mat = as.matrix(p.mat[15,])
-         , sig.level = 0.05)
-```
-
-### G
-
-No significant correlations.   
-
-```{r}
-M <- press_summ %>%
-  dplyr::filter(kiln == "G") %>% 
-  dplyr::select(c(-LOTNO,-kiln,-time_at_pos,-time_at_neg)) %>%
-  cor()
-p.mat <- cor.mtest(M)
-corrplot(as.matrix(M[15,]), method = "number",
-         p.mat = as.matrix(p.mat[15,])
-         , sig.level = 0.05)
-```
-
-### H
-
-No significant correlations.   
-
-```{r}
-M <- press_summ %>%
-  dplyr::filter(kiln == "H") %>% 
-  dplyr::select(c(-LOTNO,-kiln,-time_at_pos,-time_at_neg)) %>%
-  cor()
-p.mat <- cor.mtest(M)
-corrplot(as.matrix(M[15,]), method = "number",
-         p.mat = as.matrix(p.mat[15,])
-         , sig.level = 0.05)
-```
-
-## Linear models {.tabset .tabset-pills}
-
-### Glanced
-
-$R^2$ values in general are very poor with the exception of kiln E. Though most of these values are inflated due to training on the entire dataset rather than splitting into test and train sets.   
+**Standard linear models**   
 
 ```{r}
 # linear model on each kiln
 df <- press_summ %>% 
-  dplyr::select(-LOTNO,-time_at_pos,-time_at_neg, -temp_avg)
+  dplyr::select(-LOTNO, -time_at_pos, -time_at_neg, -temp_avg)
 
 set.seed(234)
 df_split <- initial_split(df)
@@ -783,8 +559,8 @@ lms <- df  %>%
 lm_glance <- lms %>% 
   unnest(glanced) %>% 
   select(-data,-fit,-tidied,-augmented) %>% 
-  select(kiln, r.squared,AIC,BIC) %>% 
-  arrange(-r.squared) %>% 
+  select(kiln, adj.r.squared,AIC,BIC) %>% 
+  arrange(-adj.r.squared) %>% 
   mutate_if(is.numeric, round, 5)
 
 kable(lm_glance %>% 
@@ -794,12 +570,7 @@ kable(lm_glance %>%
         select(kiln, freq, everything()),
       format="html") %>% 
   kable_styling(full_width=T)
-```
 
-### Tidied {.tabset}
-
-```{r}
-# tidied
 lm_tidy <- lms %>% 
   unnest(tidied) %>% 
   select(-data,-fit,-glanced,-augmented) %>%
@@ -812,762 +583,3176 @@ lm_tidy <- lms %>%
   )
 ```
 
-#### C
+### C {.tabset}
+
+#### LASSO
 
 ```{r}
-kable(lm_tidy %>% dplyr::filter(kiln == "C"), format="html",escape = F) %>% 
-  pack_rows( index=c("C" = 14)) %>% 
-  kable_styling("striped", full_width=T)
+# filter kiln
+Kiln = "C"
+
+df <- press_summ %>% 
+  dplyr::filter(kiln == Kiln) %>% 
+  dplyr::select(precip:aucDiff, lot_yield, -time_greater_03)
+
+# normalize all predictors
+df_norm <- recipe(lot_yield ~ ., data = df) %>% 
+  step_normalize(all_predictors()) %>%
+  prep() %>% 
+  juice()
+
+# split predictors and responses
+y = as.vector(df_norm$lot_yield)
+x = as.matrix(df_norm[-18])
+
+# find best lambda value
+cv.glmmod   <- cv.glmnet(x,y,alpha=1)
+# plot(cv.glmmod)
+best.lambda <- cv.glmmod$lambda.min
+
+# produce model
+glmmod <- glmnet(x, y, alpha=1, lambda = best.lambda)
+
+# store coefficient values
+coefs = data.frame(coef(glmmod)[,1])
+
+# plot variable importance
+tibble(data.frame(cbind(rownames(coefs), coefs))) %>% 
+  set_colnames(c("Variable", "Importance")) %>% 
+  mutate(Sign = if_else(Importance < 0, "Neg", "Pos"),
+         Importance = abs(Importance),
+         Variable = fct_reorder(Variable, Importance),
+         HJ = if_else(Importance > .5, 1,0)) %>% 
+  arrange(-Importance) %>% 
+  ggplot(aes(x=Importance,y=Variable,fill=Sign))+
+  geom_col()+
+  geom_text(aes(label=round(Importance,5), hjust=HJ))+
+  ggtitle(paste0("Kiln ", Kiln, ", Variable Importance by LASSO"))
+
 ```
-
-#### D
-
-```{r}
-kable(lm_tidy %>% dplyr::filter(kiln == "D"), format="html",escape = F) %>% 
-  pack_rows( index=c("D" = 14)) %>% 
-  kable_styling("striped", full_width=T)
-```
- 
-#### E
-
-```{r}
-kable(lm_tidy %>% dplyr::filter(kiln == "E"), format="html",escape = F) %>% 
-  pack_rows( index=c("E" = 14)) %>% 
-  kable_styling("striped", full_width=T)
-```
-
-#### F
-
-```{r}
-kable(lm_tidy %>% dplyr::filter(kiln == "F"), format="html",escape = F) %>% 
-  pack_rows( index=c("G" = 14)) %>% 
-  kable_styling("striped", full_width=T)
-```
-
-#### G
-
-```{r}
-kable(lm_tidy %>% dplyr::filter(kiln == "G"), format="html",escape = F) %>% 
-  pack_rows( index=c("G" = 14)) %>% 
-  kable_styling("striped", full_width=T)
-```
-
-#### H
-```{r}
-kable(lm_tidy %>% dplyr::filter(kiln == "H"), format="html",escape = F) %>% 
-  pack_rows( index=c("H" = 14)) %>% 
-  kable_styling("striped", full_width=T)
-```
-
-
-### Augmented
-
-Predicted values versus actual values.  
-
-```{r}
-# augmented
-lms %>% unnest(augmented) %>% 
-  select(-data,-fit,-tidied,-glanced) %>% 
-  ggplot(aes(x=lot_yield, y=.fitted))+
-  geom_pointdensity(show.legend = FALSE)+
-  # geom_point()+
-  geom_abline(lty=2,color='red')+
-  facet_wrap(~kiln)+
-  scale_y_continuous(limits=c(0.6,1))+
-  scale_x_continuous(limits=c(0.6,1))+
-  scale_color_viridis_c()
-```
-
-## Variable importance
-
-To get an idea of which variables are most important we can use LASSO regression to remove the least important variables. We can also test with a random forest variable importance implementation for comparison sake.
-
-### G {.tabset}
 
 #### Linear
 
-Recall the most significant variables from the earlier linear model based on p-value. Low p-value generally indicates variables are not simply due to random effects. The rather low $R^2$ indicates that only about 10% of the variability can be explained by the model.   
-
 ```{r}
-kable(lm_tidy %>% dplyr::filter(kiln == "G"), 
+kable(lm_tidy %>% dplyr::filter(kiln == "C"), 
       format="html",
-      caption = paste0("Significant variables by p-value, Model R^2: ",
-                       round(lm_glance$r.squared[[4]], 3)),
+      caption = paste0("Significant variables by p-value, adj.R^2: ",
+                       round(lm_glance$adj.r.squared[[2]], 3)),
       escape = F) %>%
-  pack_rows( index=c("Kiln G" = 14)) %>%
+  pack_rows( index=c("Kiln C" = 16)) %>%
   kable_styling("striped", full_width=T)
 ```
 
-#### Lasso
-
-LASSO regression requires scaled and centered variables and works by removing variables with high correlation or little importance by adjusting their coefficients to zero. This is still a type of linear regression but generally more reliable than relying on p-value.   
+#### Feature plots
 
 ```{r}
-# original data
-df <- press_summ %>% 
-  dplyr::filter(kiln == "G") %>% 
-  # dplyr::select(mean_press:lot_yield, -kiln)
-  dplyr::select(precip:lot_yield, -kiln)
-
-# splits
-set.seed(323)
-pressure_split <- initial_split(df)
-pressure_train <- training(pressure_split)
-pressure_test  <- testing(pressure_split)
-
-# lasso recipe
-pressure_rec <- recipe(lot_yield ~ ., data = pressure_train) %>% 
-  step_normalize(all_numeric(), -all_outcomes()) %>% 
-  prep()
-
-# lasso workflow
-wf <- workflow() %>% 
-  add_recipe(pressure_rec)
-
-# lasso model specification
-lasso_spec <- linear_reg(penalty = tune(), 
-                         mixture = 1) %>% 
-  set_engine("glmnet")
-
-# generate folds for tuning
-set.seed(1434)
-lasso_folds <- vfold_cv(pressure_train)
-
-# generate a grid for tuning
-lambda_grid <- grid_regular(penalty(), levels = 50)
-
-# tune model
-set.seed(211)
-lasso_grid <- tune_grid(
-  wf %>% add_model(lasso_spec),
-  resamples = lasso_folds,
-  grid = lambda_grid
-)
-
-# visualize tuning results
-# lasso_grid %>% collect_metrics() %>%
-#   ggplot(aes(penalty, mean, color=.metric))+
-#   geom_errorbar(aes(ymin = mean - std_err,
-#                     ymax = mean + std_err), alpha = .4)+
-#   geom_point(size=2)+
-#   geom_line(size=1.5)+
-#   scale_x_log10()+
-#   facet_wrap(~.metric,nrow=2,scales="free")
-
-# get best rsq value
-best_rsq <- lasso_grid %>% select_best(metric = "rsq")
-# best_rmse <- lasso_grid %>% select_best(metric = "rmse")
-
-# finalize model wf
-final_lasso_wf <- finalize_workflow(
-  wf %>% add_model(lasso_spec),
-  best_rsq
-  # best_rmse
-)
-
-# finalize model
-final_lasso_fit <- last_fit(final_lasso_wf, pressure_split)
-# save r2
-r2 <- final_lasso_fit %>% collect_metrics() %>% select(.estimate) %>% slice(2)
-
-# visualize variable importance on entire data
-gg_lasso_importance <- final_lasso_wf %>% 
-  fit(df) %>%
-  # fit(pressure_train) %>% 
-  pull_workflow_fit() %>% 
-  vi(lambda = best_rsq$penalty) %>% 
-  mutate(Importance = abs(Importance),
-         Variable = fct_reorder(Variable, Importance)) %>% 
-  ggplot(aes(x=Importance,y=Variable,fill=Sign))+
-  geom_col()+
-  labs(y=NULL)+
-  scale_x_continuous(expand = c(0,0))+
-  ggtitle(paste0("Variable importance using LASSO"))+
-  labs(subtitle = paste0("Model R^2: ", round(r2,4)))
-
-gg_lasso_importance
-```
-
-#### Random Forest
-
-```{r}
-# split train/test
-set.seed(3332)
-pressure_split <- initial_split(df)
-pressure_train <- training(pressure_split)
-pressure_test  <- testing(pressure_split)
-
-# rf recipe
-pressure_rec <- recipe(lot_yield ~ ., data = pressure_train) %>% 
-  prep()
-  
-# rf model specification
-rf_spec <- rand_forest(mode="regression", 
-                       mtry  = tune(), 
-                       trees = 1000, 
-                       min_n = tune()) %>% 
-  set_engine("randomForest")
-
-# workflow
-wf <- workflow() %>% 
-  add_recipe(pressure_rec)
-
-# generate folds for tuning
-set.seed(131)
-rf_folds <- vfold_cv(pressure_train)
-
-# tune on non-specific grid
-tune_res <- tune_grid(
-  wf %>% add_model(rf_spec),
-  resamples = rf_folds,
-  grid = 20
-  )
-
-# visualize first tuning results
-# tune_res %>% collect_metrics() %>%
-#   filter(.metric == "rsq") %>%
-#   select(mean, min_n, mtry) %>%
-#   pivot_longer(min_n:mtry, values_to ="value", names_to = "parameter") %>%
-#   ggplot(aes(value,mean,color=parameter))+
-#   geom_point()+
-#   geom_line()+
-#   facet_wrap(~parameter, nrow=2, scales="free")
-
-# generate more specific grid
-rf_grid <- grid_regular(
-  mtry(range = c(8,15)),
-  min_n(range = c(15,35)),
-  levels = 6
-  )
-
-# tune on more specific grid
-regular_res <- tune_grid(
-  wf %>% add_model(rf_spec),
-  resamples = rf_folds,
-  grid = rf_grid
-  )
-
-# visualize second tuning results
-# regular_res %>% collect_metrics() %>%
-#   filter(.metric == "rsq") %>%
-#   mutate(min_n = as.factor(min_n)) %>%
-#   ggplot(aes(mtry, mean, color = min_n))+
-#   geom_point()+
-#   geom_line(size=1.2)
-
-# store best models
-best_rsq <- regular_res %>% select_best(metric="rsq")
-best_rmse <- regular_res %>% select_best(metric="rmse")
-
-# finalize model
-final_rf <- finalize_model(
-  rf_spec,
-  best_rsq
-)
-
-# variable importance on training
-# final_rf %>% 
-#   set_engine("randomForest") %>% 
-#   fit(lot_yield ~ ., juice(pressure_rec)) %>% 
-#   vip(geom = "point")
-
-# final random forest workflow
-final_rf_wf <- workflow() %>% 
-  add_recipe(pressure_rec) %>% 
-  add_model(final_rf)
-
-# fit model on test set
-final_rf_res <- final_rf_wf %>% 
-  last_fit(pressure_split)
-
-# metrics for final model
-r2 <- final_rf_res %>% collect_metrics() %>% select(.estimate) %>% slice(2)
-
-# plot predictions vs results on test set
-# final_rf_res %>% collect_predictions() %>% 
-#   ggplot(aes(.pred, lot_yield))+
-#   geom_point()+geom_abline(lty=2,color='red')
-
-# final model
-# final_rf_model <- fit(final_rf_wf, df)
-
-# variable importance on all data
-gg_rf_importance <- final_rf %>% 
-  set_engine("randomForest") %>% 
-  fit(lot_yield ~ ., df) %>% 
-  vip(geom = "point")+
-  ggtitle(paste0("Variable importance using RandomForest"))+
-  labs(subtitle = paste0("Model R^2: ", round(r2,4)))
-
-gg_rf_importance
-```
-
-### H {.tabset}
-
-#### Linear
-
-Recall the most significant variables from the earlier linear model based on p-value. Low p-value generally indicates variables are not simply due to random effects. The rather low $R^2$ indicates that only about 10% of the variability can be explained by the model.   
-
-```{r}
-kable(lm_tidy %>% dplyr::filter(kiln == "H"), 
-      format="html",
-      caption = paste0("Significant variables by p-value, Model R^2: ",
-                       round(lm_glance$r.squared[[5]], 3)),
-      escape = F) %>%
-  pack_rows( index=c("Kiln H" = 14)) %>%
-  kable_styling("striped", full_width=T)
-```
-
-#### Lasso
-
-LASSO regression requires scaled and centered variables and works by removing variables with high correlation or little importance by adjusting their coefficients to zero. This is still a type of linear regression but generally more reliable than relying on p-value.   
-
-```{r}
-# original data
-df <- press_summ %>% 
-  dplyr::filter(kiln == "H") %>% 
-  # dplyr::select(mean_press:lot_yield, -kiln)
-  dplyr::select(precip:lot_yield, -kiln)
-
-# splits
-set.seed(32)
-pressure_split <- initial_split(df)
-pressure_train <- training(pressure_split)
-pressure_test  <- testing(pressure_split)
-
-# lasso recipe
-pressure_rec <- recipe(lot_yield ~ ., data = pressure_train) %>% 
-  step_normalize(all_numeric(), -all_outcomes()) %>% 
-  prep()
-
-# lasso workflow
-wf <- workflow() %>% 
-  add_recipe(pressure_rec)
-
-# lasso model specification
-lasso_spec <- linear_reg(penalty = tune(), 
-                         mixture = 1) %>% 
-  set_engine("glmnet")
-
-# generate folds for tuning
-set.seed(144)
-lasso_folds <- vfold_cv(pressure_train)
-
-# generate a grid for tuning
-lambda_grid <- grid_regular(penalty(), levels = 50)
-
-# tune model
-set.seed(211)
-lasso_grid <- tune_grid(
-  wf %>% add_model(lasso_spec),
-  resamples = lasso_folds,
-  grid = lambda_grid
-)
-
-# visualize tuning results
-# lasso_grid %>% collect_metrics() %>% 
-#   ggplot(aes(penalty, mean, color=.metric))+
-#   geom_errorbar(aes(ymin = mean - std_err,
-#                     ymax = mean + std_err), alpha = .4)+
-#   geom_point(size=2)+
-#   geom_line(size=1.5)+
-#   scale_x_log10()+
-#   facet_wrap(~.metric,nrow=2,scales="free")
-
-# get best rsq value
-best_rsq <- lasso_grid %>% select_best(metric = "rsq")
-# best_rmse <- lasso_grid %>% select_best(metric = "rmse")
-
-# finalize model wf
-final_lasso_wf <- finalize_workflow(
-  wf %>% add_model(lasso_spec),
-  best_rsq
-  # best_rmse
-)
-
-# finalize model
-final_lasso_fit <- last_fit(final_lasso_wf, pressure_split)
-# save r2
-r2 <- final_lasso_fit %>% collect_metrics() %>% select(.estimate) %>% slice(2)
-
-# visualize variable importance on entire data
-gg_lasso_importance <- final_lasso_wf %>% 
-  fit(df) %>%
-  # fit(pressure_train) %>% 
-  pull_workflow_fit() %>% 
-  vi(lambda = best_rsq$penalty) %>% 
-  mutate(Importance = abs(Importance),
-         Variable = fct_reorder(Variable, Importance)) %>% 
-  ggplot(aes(x=Importance,y=Variable,fill=Sign))+
-  geom_col()+
-  labs(y=NULL)+
-  scale_x_continuous(expand = c(0,0))+
-  ggtitle(paste0("Variable importance using LASSO"))+
-  labs(subtitle = paste0("Model R^2: ", round(r2,4)))
-
-gg_lasso_importance
-```
-
-#### Random Forest
-
-```{r}
-# split train/test
-set.seed(3332)
-pressure_split <- initial_split(df)
-pressure_train <- training(pressure_split)
-pressure_test  <- testing(pressure_split)
-
-# rf recipe
-pressure_rec <- recipe(lot_yield ~ ., data = pressure_train) %>% 
-  prep()
-  
-# rf model specification
-rf_spec <- rand_forest(mode="regression", 
-                       mtry  = tune(), 
-                       trees = 1000, 
-                       min_n = tune()) %>% 
-  set_engine("randomForest")
-
-# workflow
-wf <- workflow() %>% 
-  add_recipe(pressure_rec)
-
-# generate folds for tuning
-set.seed(131)
-rf_folds <- vfold_cv(pressure_train)
-
-# tune on non-specific grid
-tune_res <- tune_grid(
-  wf %>% add_model(rf_spec),
-  resamples = rf_folds,
-  grid = 20
-  )
-
-# visualize first tuning results
-# tune_res %>% collect_metrics() %>%
-#   filter(.metric == "rsq") %>%
-#   select(mean, min_n, mtry) %>%
-#   pivot_longer(min_n:mtry, values_to ="value", names_to = "parameter") %>%
-#   ggplot(aes(value,mean,color=parameter))+
-#   geom_point()+
-#   geom_line()+
-#   facet_wrap(~parameter, nrow=2, scales="free")
-
-# generate more specific grid
-rf_grid <- grid_regular(
-  mtry(range = c(1,5)),
-  min_n(range = c(10,30)),
-  levels = 7
-  )
-
-# tune on more specific grid
-regular_res <- tune_grid(
-  wf %>% add_model(rf_spec),
-  resamples = rf_folds,
-  grid = rf_grid
-  )
-
-# visualize second tuning results
-# regular_res %>% collect_metrics() %>% 
-#   filter(.metric == "rsq") %>% 
-#   mutate(min_n = as.factor(min_n)) %>% 
-#   ggplot(aes(mtry, mean, color = min_n))+
-#   geom_point()+
-#   geom_line(size=1.2)
-
-# store best models
-best_rsq <- regular_res %>% select_best(metric="rsq")
-best_rmse <- regular_res %>% select_best(metric="rmse")
-
-# finalize model
-final_rf <- finalize_model(
-  rf_spec,
-  best_rsq
-)
-
-# variable importance on training
-# final_rf %>% 
-#   set_engine("randomForest") %>% 
-#   fit(lot_yield ~ ., juice(pressure_rec)) %>% 
-#   vip(geom = "point")
-
-# final random forest workflow
-final_rf_wf <- workflow() %>% 
-  add_recipe(pressure_rec) %>% 
-  add_model(final_rf)
-
-# fit model on test set
-final_rf_res <- final_rf_wf %>% 
-  last_fit(pressure_split)
-
-# metrics for final model
-r2 <- final_rf_res %>% collect_metrics() %>% select(.estimate) %>% slice(2)
-
-# plot predictions vs results on test set
-# final_rf_res %>% collect_predictions() %>% 
-#   ggplot(aes(.pred, lot_yield))+
-#   geom_point()+geom_abline(lty=2,color='red')
-
-# final model
-# final_rf_model <- fit(final_rf_wf, df)
-
-# variable importance on all data
-gg_rf_importance <- final_rf %>% 
-  set_engine("randomForest") %>% 
-  fit(lot_yield ~ ., df) %>% 
-  vip(geom = "point")+
-  ggtitle(paste0("Variable importance using RandomForest"))+
-  labs(subtitle = paste0("Model R^2: ", round(r2,4)))
-
-gg_rf_importance
+df %>% 
+  mutate(Yields = case_when( lot_yield >= 0.95 ~ "over95",
+                               lot_yield >= 0.5 ~  "over50",
+                               TRUE ~ "below50")) %>% 
+  pivot_longer(cols = precip:aucDiff, names_to = "measures", values_to="values") %>% 
+  ggplot(aes(x=values,y=lot_yield))+
+  geom_point(aes(fill=Yields),alpha=.6,shape=21,size=2)+
+  scale_y_continuous(labels = percent_format())+
+  facet_wrap(~measures,scales='free_x',nrow=5)+
+  geom_smooth(method=lm, se=FALSE)
 ```
 
 ### D {.tabset}
 
-#### Linear
+#### LASSO
 
-Recall the most significant variables from the earlier linear model based on p-value. Low p-value generally indicates variables are not simply due to random effects. The rather low $R^2$ indicates that only about 10% of the variability can be explained by the model.   
+```{r}
+# filter kiln
+Kiln = "D"
+
+df <- press_summ %>% 
+  dplyr::filter(kiln == Kiln) %>% 
+  dplyr::select(precip:aucDiff, lot_yield)
+
+# normalize all predictors
+df_norm <- recipe(lot_yield ~ ., data = df) %>% 
+  step_normalize(all_predictors()) %>%
+  prep() %>% 
+  juice()
+
+# split predictors and responses
+y = as.vector(df_norm$lot_yield)
+x = as.matrix(df_norm[-19])
+
+# find best lambda value
+cv.glmmod   <- cv.glmnet(x,y,alpha=1)
+# plot(cv.glmmod)
+best.lambda <- cv.glmmod$lambda.min
+
+# produce model
+glmmod <- glmnet(x, y, alpha=1, lambda = best.lambda)
+
+# store coefficient values
+coefs = data.frame(coef(glmmod)[,1])
+
+# plot variable importance
+tibble(data.frame(cbind(rownames(coefs), coefs))) %>% 
+  set_colnames(c("Variable", "Importance")) %>% 
+  mutate(Sign = if_else(Importance < 0, "Neg", "Pos"),
+         Importance = abs(Importance),
+         Variable = fct_reorder(Variable, Importance),
+         HJ = if_else(Importance > .5, 1,0)) %>% 
+  arrange(-Importance) %>% 
+  ggplot(aes(x=Importance,y=Variable,fill=Sign))+
+  geom_col()+
+  geom_text(aes(label=round(Importance,5), hjust=HJ))+
+  ggtitle(paste0("Kiln ", Kiln, ", Variable Importance by LASSO"))
+
+```
+
+#### Linear
 
 ```{r}
 kable(lm_tidy %>% dplyr::filter(kiln == "D"), 
       format="html",
-      caption = paste0("Significant variables by p-value, Model R^2: ",
-                       round(lm_glance$r.squared[[2]], 3)),
+      caption = paste0("Significant variables by p-value, adj.R^2: ",
+                       round(lm_glance$adj.r.squared[[1]], 3)),
       escape = F) %>%
-  pack_rows( index=c("Kiln D" = 14)) %>%
+  pack_rows( index=c("Kiln D" = 16)) %>%
+  kable_styling("striped", full_width=T)
+
+# D_pruned <- press_summ %>% 
+#   dplyr::filter(kiln == "D") %>% 
+#   dplyr::select(mean_press:aucDiff,lot_yield)
+# 
+# lm(lot_yield ~ ., data = D_pruned) %>% summary()
+```
+
+#### Feature plots
+
+```{r}
+df %>% 
+  mutate(Yields = case_when( lot_yield >= 0.95 ~ "over95",
+                               lot_yield >= 0.5 ~  "over50",
+                               TRUE ~ "below50")) %>% 
+  pivot_longer(cols = precip:aucDiff, names_to = "measures", values_to="values") %>% 
+  ggplot(aes(x=values,y=lot_yield))+
+  geom_point(aes(fill=Yields),alpha=.5,shape=21,size=2)+
+  scale_y_continuous(labels = percent_format())+
+  facet_wrap(~measures,scales='free_x',nrow=5)+
+  geom_smooth(method=lm, se=FALSE)
+```
+
+### E {.tabset}
+
+#### LASSO
+
+```{r}
+# filter kiln
+Kiln = "E"
+
+df <- press_summ %>% 
+  dplyr::filter(kiln == Kiln) %>% 
+  dplyr::select(precip:aucDiff, lot_yield)
+
+# normalize all predictors
+df_norm <- recipe(lot_yield ~ ., data = df) %>% 
+  step_normalize(all_predictors()) %>%
+  prep() %>% 
+  juice()
+
+# split predictors and responses
+y = as.vector(df_norm$lot_yield)
+x = as.matrix(df_norm[-19])
+
+# find best lambda value
+cv.glmmod   <- cv.glmnet(x,y,alpha=1)
+# plot(cv.glmmod)
+best.lambda <- cv.glmmod$lambda.min
+
+# produce model
+glmmod <- glmnet(x, y, alpha=1, lambda = best.lambda)
+
+# store coefficient values
+coefs = data.frame(coef(glmmod)[,1])
+
+# plot variable importance
+tibble(data.frame(cbind(rownames(coefs), coefs))) %>% 
+  set_colnames(c("Variable", "Importance")) %>% 
+  mutate(Sign = if_else(Importance < 0, "Neg", "Pos"),
+         Importance = abs(Importance),
+         Variable = fct_reorder(Variable, Importance),
+         HJ = if_else(Importance > .5, 1,0)) %>% 
+  arrange(-Importance) %>% 
+  ggplot(aes(x=Importance,y=Variable,fill=Sign))+
+  geom_col()+
+  geom_text(aes(label=round(Importance,5), hjust=HJ))
+  ggtitle(paste0("Kiln ", Kiln, ", Variable Importance by LASSO"))
+```
+
+#### Linear
+
+No p-values when using all predictors due to number of observations being so low (and number of predictors being so high). Below model produced omitting weather data.  
+
+```{r}
+E_data <- press_summ %>% 
+  dplyr::filter(kiln == "E") %>% 
+  dplyr::select(mean_press:aucDiff, lot_yield)
+
+E_lm <- lm(lot_yield ~ ., data = E_data)
+E_summ <- E_lm %>% summary()
+
+
+kable(lm(lot_yield ~ ., data = E_data) %>% 
+        tidy() %>% 
+        arrange(p.value),
+      format="html",
+      caption = paste0("Significant variables by p-value, adj.R^2: ",
+                       round(E_summ$adj.r.squared, 3)),
+      escape = F) %>%
+  pack_rows( index=c("Kiln E" = 11)) %>%
   kable_styling("striped", full_width=T)
 ```
 
-#### Lasso
-
-LASSO regression requires scaled and centered variables and works by removing variables with high correlation or little importance by adjusting their coefficients to zero. This is still a type of linear regression but generally more reliable than relying on p-value.   
+#### Feature plots
 
 ```{r}
-# original data
+df %>% 
+  mutate(Yields = case_when( lot_yield >= 0.95 ~ "over95",
+                               lot_yield >= 0.5 ~  "over50",
+                               TRUE ~ "below50")) %>% 
+  pivot_longer(cols = precip:aucDiff, names_to = "measures", values_to="values") %>% 
+  ggplot(aes(x=values,y=lot_yield))+
+  geom_point(aes(fill=Yields),alpha=.8,shape=21,size=2)+
+  scale_y_continuous(labels = percent_format())+
+  facet_wrap(~measures,scales='free_x',nrow=5)+
+  geom_smooth(method=lm, se=FALSE)
+```
+
+
+### F {.tabset}
+
+No significant features when using p-value as a metric.  
+
+#### LASSO
+
+```{r}
+# filter kiln
+Kiln = "F"
+
 df <- press_summ %>% 
-  dplyr::filter(kiln == "D") %>% 
-  # dplyr::select(mean_press:lot_yield, -kiln)
-  dplyr::select(precip:lot_yield, -kiln)
+  dplyr::filter(kiln == Kiln) %>% 
+  dplyr::select(precip:aucDiff, lot_yield)
 
-# splits
-set.seed(32)
-pressure_split <- initial_split(df)
-pressure_train <- training(pressure_split)
-pressure_test  <- testing(pressure_split)
+# normalize all predictors
+df_norm <- recipe(lot_yield ~ ., data = df) %>% 
+  step_normalize(all_predictors()) %>%
+  prep() %>% 
+  juice()
 
-# lasso recipe
-pressure_rec <- recipe(lot_yield ~ ., data = pressure_train) %>% 
-  step_normalize(all_numeric(), -all_outcomes()) %>% 
-  prep()
+# split predictors and responses
+y = as.vector(df_norm$lot_yield)
+x = as.matrix(df_norm[-19])
 
-# lasso workflow
-wf <- workflow() %>% 
-  add_recipe(pressure_rec)
+# find best lambda value
+cv.glmmod   <- cv.glmnet(x,y,alpha=1)
+# plot(cv.glmmod)
+best.lambda <- cv.glmmod$lambda.min
 
-# lasso model specification
-lasso_spec <- linear_reg(penalty = tune(), 
-                         mixture = 1) %>% 
-  set_engine("glmnet")
+# produce model
+glmmod <- glmnet(x, y, alpha=1, lambda = best.lambda)
 
-# generate folds for tuning
-set.seed(144)
-lasso_folds <- vfold_cv(pressure_train)
+# store coefficient values
+coefs = data.frame(coef(glmmod)[,1])
 
-# generate a grid for tuning
-lambda_grid <- grid_regular(penalty(), levels = 50)
-
-# tune model
-set.seed(211)
-lasso_grid <- tune_grid(
-  wf %>% add_model(lasso_spec),
-  resamples = lasso_folds,
-  grid = lambda_grid
-)
-
-# visualize tuning results
-# lasso_grid %>% collect_metrics() %>% 
-#   ggplot(aes(penalty, mean, color=.metric))+
-#   geom_errorbar(aes(ymin = mean - std_err,
-#                     ymax = mean + std_err), alpha = .4)+
-#   geom_point(size=2)+
-#   geom_line(size=1.5)+
-#   scale_x_log10()+
-#   facet_wrap(~.metric,nrow=2,scales="free")
-
-# get best rsq value
-best_rsq <- lasso_grid %>% select_best(metric = "rsq")
-# best_rmse <- lasso_grid %>% select_best(metric = "rmse")
-
-# finalize model wf
-final_lasso_wf <- finalize_workflow(
-  wf %>% add_model(lasso_spec),
-  best_rsq
-  # best_rmse
-)
-
-# finalize model
-final_lasso_fit <- last_fit(final_lasso_wf, pressure_split)
-# save r2
-r2 <- final_lasso_fit %>% collect_metrics() %>% select(.estimate) %>% slice(2)
-
-# visualize variable importance on entire data
-gg_lasso_importance <- final_lasso_wf %>% 
-  fit(df) %>%
-  # fit(pressure_train) %>% 
-  pull_workflow_fit() %>% 
-  vi(lambda = best_rsq$penalty) %>% 
-  mutate(Importance = abs(Importance),
-         Variable = fct_reorder(Variable, Importance)) %>% 
+# plot variable importance
+tibble(data.frame(cbind(rownames(coefs), coefs))) %>% 
+  set_colnames(c("Variable", "Importance")) %>% 
+  mutate(Sign = if_else(Importance < 0, "Neg", "Pos"),
+         Importance = abs(Importance),
+         Variable = fct_reorder(Variable, Importance),
+         HJ = if_else(Importance > .5, 1,0)) %>% 
+  arrange(-Importance) %>% 
   ggplot(aes(x=Importance,y=Variable,fill=Sign))+
   geom_col()+
-  labs(y=NULL)+
-  scale_x_continuous(expand = c(0,0))+
-  ggtitle(paste0("Variable importance using LASSO"))+
-  labs(subtitle = paste0("Model R^2: ", round(r2,4)))
+  geom_text(aes(label=round(Importance,5), hjust=HJ))+
+  ggtitle(paste0("Kiln ", Kiln, ", Variable Importance by LASSO"))
 
-gg_lasso_importance
 ```
 
-#### Random Forest
+#### Linear
 
 ```{r}
-# split train/test
-set.seed(3332)
-pressure_split <- initial_split(df)
-pressure_train <- training(pressure_split)
-pressure_test  <- testing(pressure_split)
-
-# rf recipe
-pressure_rec <- recipe(lot_yield ~ ., data = pressure_train) %>% 
-  prep()
-  
-# rf model specification
-rf_spec <- rand_forest(mode="regression", 
-                       mtry  = tune(), 
-                       trees = 1000, 
-                       min_n = tune()) %>% 
-  set_engine("randomForest")
-
-# workflow
-wf <- workflow() %>% 
-  add_recipe(pressure_rec)
-
-# generate folds for tuning
-set.seed(131)
-rf_folds <- vfold_cv(pressure_train)
-
-# tune on non-specific grid
-tune_res <- tune_grid(
-  wf %>% add_model(rf_spec),
-  resamples = rf_folds,
-  grid = 20
-  )
-
-# visualize first tuning results
-# tune_res %>% collect_metrics() %>%
-#   filter(.metric == "rsq") %>%
-#   select(mean, min_n, mtry) %>%
-#   pivot_longer(min_n:mtry, values_to ="value", names_to = "parameter") %>%
-#   ggplot(aes(value,mean,color=parameter))+
-#   geom_point()+
-#   geom_line()+
-#   facet_wrap(~parameter, nrow=2, scales="free")
-
-# generate more specific grid
-rf_grid <- grid_regular(
-  min_n(range = c(1,20)),
-  mtry(range = c(10,16)),
-  levels = 6
-  )
-
-# tune on more specific grid
-regular_res <- tune_grid(
-  wf %>% add_model(rf_spec),
-  resamples = rf_folds,
-  grid = rf_grid
-  )
-
-# visualize second tuning results
-# regular_res %>% collect_metrics() %>% 
-#   filter(.metric == "rsq") %>% 
-#   mutate(min_n = as.factor(min_n)) %>% 
-#   ggplot(aes(mtry, mean, color = min_n))+
-#   geom_point()+
-#   geom_line(size=1.2)
-
-# store best models
-best_rsq <- regular_res %>% select_best(metric="rsq")
-best_rmse <- regular_res %>% select_best(metric="rmse")
-
-# finalize model
-final_rf <- finalize_model(
-  rf_spec,
-  best_rsq
-)
-
-# variable importance on training
-# final_rf %>% 
-#   set_engine("randomForest") %>% 
-#   fit(lot_yield ~ ., juice(pressure_rec)) %>% 
-#   vip(geom = "point")
-
-# final random forest workflow
-final_rf_wf <- workflow() %>% 
-  add_recipe(pressure_rec) %>% 
-  add_model(final_rf)
-
-# fit model on test set
-final_rf_res <- final_rf_wf %>% 
-  last_fit(pressure_split)
-
-# metrics for final model
-r2 <- final_rf_res %>% collect_metrics() %>% select(.estimate) %>% slice(2)
-
-# plot predictions vs results on test set
-# final_rf_res %>% collect_predictions() %>% 
-#   ggplot(aes(.pred, lot_yield))+
-#   geom_point()+geom_abline(lty=2,color='red')
-
-# final model
-# final_rf_model <- fit(final_rf_wf, df)
-
-# variable importance on all data
-gg_rf_importance <- final_rf %>% 
-  set_engine("randomForest") %>% 
-  fit(lot_yield ~ ., df) %>% 
-  vip(geom = "point")+
-  ggtitle(paste0("Variable importance using RandomForest"))+
-  labs(subtitle = paste0("Model R^2: ", round(r2,4)))
-
-gg_rf_importance
+kable(lm_tidy %>% dplyr::filter(kiln == "F"), 
+      format="html",
+      caption = paste0("Significant variables by p-value, adj.R^2: ",
+                       round(lm_glance$adj.r.squared[[5]], 3)),
+      escape = F) %>%
+  pack_rows( index=c("Kiln F" = 16)) %>%
+  kable_styling("striped", full_width=T)
 ```
 
-
-
-
-
-
-
-
-
-
-
-
-
-# Item yields analysis
-
-Rather than segregate into kilns, we group by item.  
+#### Feature plots
 
 ```{r}
-press_summ
-df_merged
+df %>% 
+  mutate(Yields = case_when( lot_yield >= 0.95 ~ "over95",
+                               lot_yield >= 0.5 ~  "over50",
+                               TRUE ~ "below50")) %>% 
+  pivot_longer(cols = precip:aucDiff, names_to = "measures", values_to="values") %>% 
+  ggplot(aes(x=values,y=lot_yield))+
+  geom_point(aes(fill=Yields),alpha=.5,shape=21,size=2)+
+  scale_y_continuous(labels = percent_format())+
+  facet_wrap(~measures,scales='free_x',nrow=5)+
+  geom_smooth(method=lm, se=FALSE)
+```
 
+### G {.tabset}
 
+#### LASSO
 
+```{r}
+# filter kiln
+Kiln = "G"
+
+df <- press_summ %>% 
+  dplyr::filter(kiln == Kiln) %>% 
+  dplyr::select(precip:aucDiff, lot_yield)
+
+# normalize all predictors
+df_norm <- recipe(lot_yield ~ ., data = df) %>% 
+  step_normalize(all_predictors()) %>%
+  prep() %>% 
+  juice()
+
+# split predictors and responses
+y = as.vector(df_norm$lot_yield)
+x = as.matrix(df_norm[-19])
+
+# find best lambda value
+cv.glmmod   <- cv.glmnet(x,y,alpha=1)
+# plot(cv.glmmod)
+best.lambda <- cv.glmmod$lambda.min
+
+# produce model
+glmmod <- glmnet(x, y, alpha=1, lambda = best.lambda)
+
+# store coefficient values
+coefs = data.frame(coef(glmmod)[,1])
+
+# plot variable importance
+tibble(data.frame(cbind(rownames(coefs), coefs))) %>% 
+  set_colnames(c("Variable", "Importance")) %>% 
+  mutate(Sign = if_else(Importance < 0, "Neg", "Pos"),
+         Importance = abs(Importance),
+         Variable = fct_reorder(Variable, Importance),
+         HJ = if_else(Importance > .5, 1,0)) %>% 
+  arrange(-Importance) %>% 
+  ggplot(aes(x=Importance,y=Variable,fill=Sign))+
+  geom_col()+
+  geom_text(aes(label=round(Importance,5), hjust=HJ))+
+  ggtitle(paste0("Kiln ", Kiln, ", Variable Importance by LASSO"))
+```
+
+#### Linear
+
+```{r}
+kable(lm_tidy %>% dplyr::filter(kiln == "G"), 
+      format="html",
+      caption = paste0("Significant variables by p-value, adj.R^2: ",
+                       round(lm_glance$adj.r.squared[[3]], 3)),
+      escape = F) %>%
+  pack_rows( index=c("Kiln G" = 16)) %>%
+  kable_styling("striped", full_width=T)
+```
+
+#### Feature plots
+
+```{r}
+df %>% 
+  mutate(Yields = case_when( lot_yield >= 0.95 ~ "over95",
+                               lot_yield >= 0.5 ~  "over50",
+                               TRUE ~ "below50")) %>% 
+  dplyr::filter(lot_yield > .4) %>% 
+  pivot_longer(cols = precip:aucDiff, names_to = "measures", values_to="values") %>% 
+  ggplot(aes(x=values,y=lot_yield))+
+  geom_point(aes(fill=Yields),alpha=.4,shape=21,size=2)+
+  scale_y_continuous(labels = percent_format())+
+  facet_wrap(~measures,scales='free_x',nrow=5)+
+  geom_smooth(method=lm, se=FALSE)
+```
+
+### H {.tabset}
+
+No significant features when using p-value as a metric.  
+
+#### LASSO
+
+```{r}
+# filter kiln
+Kiln = "H"
+
+df <- press_summ %>% 
+  dplyr::filter(kiln == Kiln) %>% 
+  dplyr::select(precip:aucDiff, lot_yield)
+
+# normalize all predictors
+df_norm <- recipe(lot_yield ~ ., data = df) %>% 
+  step_normalize(all_predictors()) %>%
+  prep() %>% 
+  juice()
+
+# split predictors and responses
+y = as.vector(df_norm$lot_yield)
+x = as.matrix(df_norm[-19])
+
+# find best lambda value
+cv.glmmod   <- cv.glmnet(x,y,alpha=1)
+# plot(cv.glmmod)
+best.lambda <- cv.glmmod$lambda.min
+
+# produce model
+glmmod <- glmnet(x, y, alpha=1, lambda = best.lambda)
+
+# store coefficient values
+coefs = data.frame(coef(glmmod)[,1])
+
+# plot variable importance
+tibble(data.frame(cbind(rownames(coefs), coefs))) %>% 
+  set_colnames(c("Variable", "Importance")) %>% 
+  mutate(Sign = if_else(Importance < 0, "Neg", "Pos"),
+         Importance = abs(Importance),
+         Variable = fct_reorder(Variable, Importance),
+         HJ = if_else(Importance > .5, 1,0)) %>% 
+  arrange(-Importance) %>% 
+  ggplot(aes(x=Importance,y=Variable,fill=Sign))+
+  geom_col()+
+  geom_text(aes(label=round(Importance,5), hjust=HJ))+
+  ggtitle(paste0("Kiln ", Kiln, ", Variable Importance by LASSO"))
+```
+
+#### Linear
+
+```{r}
+kable(lm_tidy %>% dplyr::filter(kiln == "H"), 
+      format="html",
+      caption = paste0("Significant variables by p-value, adj.R^2: ",
+                       round(lm_glance$adj.r.squared[[4]], 3)),
+      escape = F) %>%
+  pack_rows( index=c("Kiln H" = 16)) %>%
+  kable_styling("striped", full_width=T)
+```
+
+#### Feature plots
+
+```{r}
+df %>% 
+  mutate(Yields = case_when( lot_yield >= 0.95 ~ "over95",
+                               lot_yield >= 0.5 ~  "over50",
+                               TRUE ~ "below50")) %>% 
+  pivot_longer(cols = precip:aucDiff, names_to = "measures", values_to="values") %>% 
+  ggplot(aes(x=values,y=lot_yield))+
+  geom_point(aes(fill=Yields),alpha=.5,shape=21,size=2)+
+  scale_y_continuous(labels = percent_format())+
+  facet_wrap(~measures,scales='free_x',nrow=5)+
+  geom_smooth(method=lm, se=FALSE)
+```
+
+## by Item yield
+
+Perform analysis on items rather than kilns. This may shed light on whether certain items produce better yields under different circumstances than others.  
+
+```{r}
 # df yields join with press summ ... do pressures impact yields of items?
 
-
-# df merged/defect join with press summ ... do pressures impact on occurence of defects?
-
+# get item yields, join with pressure stats
+item_yields <- df_yields %>% 
+  dplyr::select(LOTNO, ITEM, DESCRIPTION, FIRE_DATE, total_item_pct_yield) %>% 
+  na.omit() %>% 
+  right_join(press_summ)
 ```
 
+### Carpenter Filter {.tabset}
+
+#### Item yield over time 
+
+```{r}
+item = "215.5MMBODX38MM,45PPI,PSZM,FEC,1/8\"FG"
+
+item_df <- item_yields %>% 
+  dplyr::filter(DESCRIPTION == "215.5MMBODX38MM,45PPI,PSZM,FEC,1/8\"FG") %>% 
+  mutate(Yields = case_when( total_item_pct_yield >= 0.95 ~ "over95",
+                               total_item_pct_yield >= 0.5 ~  "over50",
+                               TRUE ~ "below50"))
+
+item_df %>%    
+  ggplot(aes(x=FIRE_DATE,y=total_item_pct_yield))+
+  geom_point(aes(fill=Yields),size=3, shape=21, alpha=.8)+
+  geom_smooth(method=lm, se=FALSE)+
+  geom_line(alpha=.2)+
+  # theme(legend.position = "none")+
+  scale_y_continuous(limits = c(0,1), labels = percent_format())+
+  scale_fill_brewer(type="qual",palette=2)+
+  ggtitle(paste0(item))+
+  labs(x="Fire date", y="Item yield")
+```
+
+#### LASSO
+
+```{r}
+df <- item_df %>% 
+  dplyr::select(total_item_pct_yield:aucDiff)
+
+# normalize all predictors
+df_norm <- recipe(total_item_pct_yield ~ ., data = df) %>% 
+  step_normalize(all_predictors()) %>%
+  prep() %>% 
+  juice()
+
+# split predictors and responses
+y = as.vector(df_norm$total_item_pct_yield)
+x = as.matrix(df_norm[-19])
+
+set.seed(234)
+# find best lambda value
+cv.glmmod   <- cv.glmnet(x,y,alpha=1)
+# plot(cv.glmmod)
+best.lambda <- cv.glmmod$lambda.min
+
+set.seed(234)
+# produce model
+glmmod <- glmnet(x, y, alpha=1, lambda = best.lambda)
+
+# store coefficient values
+coefs = data.frame(coef(glmmod)[,1])
+
+# plot variable importance
+tibble(data.frame(cbind(rownames(coefs), coefs))) %>% 
+  set_colnames(c("Variable", "Importance")) %>% 
+  mutate(Sign = if_else(Importance < 0, "Neg", "Pos"),
+         Importance = abs(Importance),
+         Variable = fct_reorder(Variable, Importance),
+         HJ = if_else(Importance > .5, 1,0)) %>% 
+  arrange(-Importance) %>% 
+  ggplot(aes(x=Importance,y=Variable,fill=Sign))+
+  geom_col()+
+  geom_text(aes(label=round(Importance,5), hjust=HJ))+
+  ggtitle(paste0(item, ", VI by LASSO"))
+```
+
+#### Feature plots
+
+```{r}
+item_df %>%  
+  dplyr::select(total_item_pct_yield:Yields) %>% 
+  pivot_longer(cols = precip:aucDiff, names_to = "measures", values_to="values") %>% 
+  ggplot(aes(x=values,y=total_item_pct_yield))+
+  geom_point(aes(fill=Yields),size=2,shape=21,alpha=.8)+
+  scale_y_continuous(limits = c(0,1), labels = percent_format())+
+  facet_wrap(~measures,scales='free_x')+
+  geom_smooth(method=lm, se=FALSE)
+```
+
+#### Visualize kiln plots {.tabset}
+
+##### All
+
+```{r}
+sample <- item_yields %>% 
+  dplyr::filter(DESCRIPTION == item) %>% 
+  dplyr::select(LOTNO) %>% unlist()
+
+sec_y_scale=20000
+sec_y_shift=1500
+
+press_joined_item <- press_joined %>% 
+  dplyr::filter(LOTNO %in% sample) %>%
+  left_join(
+    item_yields %>% 
+      dplyr::filter(DESCRIPTION == item) %>% 
+      dplyr::select(LOTNO,total_item_pct_yield)
+    ) %>% 
+    mutate(classify = factor(case_when( total_item_pct_yield >= 0.95 ~ "over95",
+                               total_item_pct_yield >= 0.5 ~  "over50",
+                               TRUE ~ "below50")))
+
+press_joined_item %>% 
+
+  # kiln temp, setpoint, pressure
+  ggplot(aes(x=time))+
+  geom_line(aes(y=avg_kiln_temp))+
+  geom_line(aes(y=setpoint),color='grey50',linetype='dashed')+
+  geom_point(aes(y=pressure * sec_y_scale + sec_y_shift),alpha=.1,size=.1)+
+  
+  # color points
+  geom_point(aes(y=press_greater_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  geom_point(aes(y=press_betw_02_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green3')+
+  geom_point(aes(y=press_betw_01_02 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green')+
+  geom_point(aes(y=press_betw_00_01 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='yellow2')+
+  geom_point(aes(y=press_less_00    * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  
+  geom_ribbon(aes(ymin = auc_min, ymax = auc_max),fill='pink',alpha=1)+
+
+  scale_y_continuous(name = "Kiln temp (F)",
+                     breaks = sort(c(seq(0,3000,1000),400,600,1200)),
+                     sec.axis = sec_axis(~. / sec_y_scale - (sec_y_shift / sec_y_scale),
+                                         name = "Pressure",
+                                         breaks = seq(-.1,.1,.01)
+                     )
+  )+
+  scale_x_continuous(name = "Hours", 
+                     labels = number_format(scale=1/60),
+                     breaks = sort(c(seq(0,100*60,12*60)))
+  )+
+
+  # yields
+  geom_label(data = press_joined_item %>% dplyr::filter(LOTNO %in% sample) %>%
+               distinct(total_item_pct_yield),
+             aes(x = 60 * 65, y = -0.04 * sec_y_scale + sec_y_shift,
+                 label = paste0( "Yield: ", mypercent(total_item_pct_yield) )
+             ),
+             label.padding = unit(0.2, "lines"),
+             hjust=1,vjust=.5,
+             fill='lightskyblue',
+             label.size=.1
+             ) +
+  facet_wrap(~LOTNO)
+```
+
+
+##### Yields > 95%
+```{r}
+
+press_joined_item %>% 
+
+  dplyr::filter(classify == "over95") %>% 
+  
+  # kiln temp, setpoint, pressure
+  ggplot(aes(x=time))+
+  geom_line(aes(y=avg_kiln_temp))+
+  geom_line(aes(y=setpoint),color='grey50',linetype='dashed')+
+  geom_point(aes(y=pressure * sec_y_scale + sec_y_shift),alpha=.1,size=.1)+
+  
+  # color points
+  geom_point(aes(y=press_greater_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  geom_point(aes(y=press_betw_02_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green3')+
+  geom_point(aes(y=press_betw_01_02 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green')+
+  geom_point(aes(y=press_betw_00_01 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='yellow2')+
+  geom_point(aes(y=press_less_00    * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  
+  geom_ribbon(aes(ymin = auc_min, ymax = auc_max),fill='pink',alpha=1)+
+
+  scale_y_continuous(name = "Kiln temp (F)",
+                     breaks = sort(c(seq(0,3000,1000),400,600,1200)),
+                     sec.axis = sec_axis(~. / sec_y_scale - (sec_y_shift / sec_y_scale),
+                                         name = "Pressure",
+                                         breaks = seq(-.1,.1,.01)
+                     )
+  )+
+  scale_x_continuous(name = "Hours", 
+                     labels = number_format(scale=1/60),
+                     breaks = sort(c(seq(0,100*60,12*60)))
+  )+
+
+  # yields
+  geom_label(data = press_joined_item %>% dplyr::filter(LOTNO %in% sample) %>%
+               distinct(total_item_pct_yield),
+             aes(x = 60 * 65, y = -0.04 * sec_y_scale + sec_y_shift,
+                 label = paste0( "Yield: ", mypercent(total_item_pct_yield) )
+             ),
+             label.padding = unit(0.2, "lines"),
+             hjust=1,vjust=.5,
+             fill='lightskyblue',
+             label.size=.1
+             ) +
+  facet_wrap(~LOTNO)
+```
+
+##### > 50%
+
+```{r}
+press_joined_item %>% 
+
+  dplyr::filter(classify == "over50") %>% 
+  
+  # kiln temp, setpoint, pressure
+  ggplot(aes(x=time))+
+  geom_line(aes(y=avg_kiln_temp))+
+  geom_line(aes(y=setpoint),color='grey50',linetype='dashed')+
+  geom_point(aes(y=pressure * sec_y_scale + sec_y_shift),alpha=.1,size=.1)+
+  
+  # color points
+  geom_point(aes(y=press_greater_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  geom_point(aes(y=press_betw_02_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green3')+
+  geom_point(aes(y=press_betw_01_02 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green')+
+  geom_point(aes(y=press_betw_00_01 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='yellow2')+
+  geom_point(aes(y=press_less_00    * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  
+  geom_ribbon(aes(ymin = auc_min, ymax = auc_max),fill='pink',alpha=1)+
+
+  scale_y_continuous(name = "Kiln temp (F)",
+                     breaks = sort(c(seq(0,3000,1000),400,600,1200)),
+                     sec.axis = sec_axis(~. / sec_y_scale - (sec_y_shift / sec_y_scale),
+                                         name = "Pressure",
+                                         breaks = seq(-.1,.1,.01)
+                     )
+  )+
+  scale_x_continuous(name = "Hours", 
+                     labels = number_format(scale=1/60),
+                     breaks = sort(c(seq(0,100*60,12*60)))
+  )+
+
+  # yields
+  geom_label(data = press_joined_item %>% dplyr::filter(LOTNO %in% sample) %>%
+               distinct(total_item_pct_yield),
+             aes(x = 60 * 65, y = -0.04 * sec_y_scale + sec_y_shift,
+                 label = paste0( "Yield: ", mypercent(total_item_pct_yield) )
+             ),
+             label.padding = unit(0.2, "lines"),
+             hjust=1,vjust=.5,
+             fill='lightskyblue',
+             label.size=.1
+             ) +
+  facet_wrap(~LOTNO)
+```
+
+
+##### < 50%
+
+```{r}
+press_joined_item %>% 
+
+  dplyr::filter(classify == "below50") %>% 
+  
+  # kiln temp, setpoint, pressure
+  ggplot(aes(x=time))+
+  geom_line(aes(y=avg_kiln_temp))+
+  geom_line(aes(y=setpoint),color='grey50',linetype='dashed')+
+  geom_point(aes(y=pressure * sec_y_scale + sec_y_shift),alpha=.1,size=.1)+
+  
+  # color points
+  geom_point(aes(y=press_greater_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  geom_point(aes(y=press_betw_02_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green3')+
+  geom_point(aes(y=press_betw_01_02 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green')+
+  geom_point(aes(y=press_betw_00_01 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='yellow2')+
+  geom_point(aes(y=press_less_00    * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  
+  geom_ribbon(aes(ymin = auc_min, ymax = auc_max),fill='pink',alpha=1)+
+
+  scale_y_continuous(name = "Kiln temp (F)",
+                     breaks = sort(c(seq(0,3000,1000),400,600,1200)),
+                     sec.axis = sec_axis(~. / sec_y_scale - (sec_y_shift / sec_y_scale),
+                                         name = "Pressure",
+                                         breaks = seq(-.1,.1,.01)
+                     )
+  )+
+  scale_x_continuous(name = "Hours", 
+                     labels = number_format(scale=1/60),
+                     breaks = sort(c(seq(0,100*60,12*60)))
+  )+
+
+  # yields
+  geom_label(data = press_joined_item %>% dplyr::filter(LOTNO %in% sample) %>%
+               distinct(total_item_pct_yield),
+             aes(x = 60 * 65, y = -0.04 * sec_y_scale + sec_y_shift,
+                 label = paste0( "Yield: ", mypercent(total_item_pct_yield) )
+             ),
+             label.padding = unit(0.2, "lines"),
+             hjust=1,vjust=.5,
+             fill='lightskyblue',
+             label.size=.1
+             ) +
+  facet_wrap(~LOTNO)
+```
+
+### .75"ODX.5",30PPI,AL99,SEC {.tabset}
+
+#### Item yield over time 
+
+```{r}
+item <- count(item_yields$DESCRIPTION) %>% 
+  arrange(-freq) %>% 
+  slice(1) %>% 
+  dplyr::select(x) %>% 
+  unlist()
+
+item_df <- item_yields %>% 
+  dplyr::filter(DESCRIPTION == item) %>% 
+  mutate(Yields = case_when( total_item_pct_yield >= 0.95 ~ "over95",
+                               total_item_pct_yield >= 0.5 ~  "over50",
+                               TRUE ~ "below50"))
+
+item_df %>%    
+  ggplot(aes(x=FIRE_DATE,y=total_item_pct_yield))+
+  geom_point(aes(fill=Yields),size=3, shape=21, alpha=.8)+
+  geom_smooth(method=lm, se=FALSE)+
+  geom_line(alpha=.2)+
+  # theme(legend.position = "none")+
+  scale_y_continuous(limits = c(0,1), labels = percent_format())+
+  scale_fill_brewer(type="qual",palette=2)+
+  ggtitle(paste0(item))+
+  labs(x="Fire date", y="Item yield")
+```
+
+#### LASSO
+
+```{r}
+df <- item_df %>% 
+  dplyr::select(total_item_pct_yield:aucDiff)
+
+# normalize all predictors
+df_norm <- recipe(total_item_pct_yield ~ ., data = df) %>% 
+  step_normalize(all_predictors()) %>%
+  prep() %>% 
+  juice()
+
+# split predictors and responses
+y = as.vector(df_norm$total_item_pct_yield)
+x = as.matrix(df_norm[-19])
+
+set.seed(344)
+# find best lambda value
+cv.glmmod   <- cv.glmnet(x,y,alpha=1)
+# plot(cv.glmmod)
+best.lambda <- cv.glmmod$lambda.min
+
+set.seed(344)
+# produce model
+glmmod <- glmnet(x, y, alpha=1, lambda = best.lambda)
+
+# store coefficient values
+coefs = data.frame(coef(glmmod)[,1])
+
+# plot variable importance
+tibble(data.frame(cbind(rownames(coefs), coefs))) %>% 
+  set_colnames(c("Variable", "Importance")) %>% 
+  mutate(Sign = if_else(Importance < 0, "Neg", "Pos"),
+         Importance = abs(Importance),
+         Variable = fct_reorder(Variable, Importance),
+         HJ = if_else(Importance > .5, 1,0)) %>% 
+  arrange(-Importance) %>% 
+  ggplot(aes(x=Importance,y=Variable,fill=Sign))+
+  geom_col()+
+  geom_text(aes(label=round(Importance,5), hjust=HJ))+
+  ggtitle(paste0(item, ", VI by LASSO"))
+```
+
+#### Feature plots
+
+```{r}
+item_df %>%  
+  dplyr::select(total_item_pct_yield:Yields) %>% 
+  pivot_longer(cols = precip:aucDiff, names_to = "measures", values_to="values") %>% 
+  ggplot(aes(x=values,y=total_item_pct_yield))+
+  geom_point(aes(fill=Yields),size=2,shape=21,alpha=.8)+
+  scale_y_continuous(limits = c(0,1), labels = percent_format())+
+  facet_wrap(~measures,scales='free_x')+
+  geom_smooth(method=lm, se=FALSE)
+```
+
+#### Visualize kiln plots {.tabset}
+
+##### All
+
+```{r}
+
+set.seed(5532)
+a <- item_yields %>% 
+  dplyr::filter(DESCRIPTION == item) %>% 
+  dplyr::filter(total_item_pct_yield < .5) %>% 
+  select(LOTNO) %>% unlist() %>% as.vector()
+set.seed(5532)
+b <- item_yields %>% 
+  dplyr::filter(DESCRIPTION == item) %>% 
+  dplyr::filter(total_item_pct_yield >= .95) %>% 
+  select(LOTNO) %>% unlist() %>% sample(8) %>% as.vector()
+set.seed(5532)
+c <- item_yields %>% 
+  dplyr::filter(DESCRIPTION == item) %>% 
+  dplyr::filter((total_item_pct_yield >.7) & (total_item_pct_yield < .95)) %>% 
+  select(LOTNO)  %>% unlist() %>% sample(7) %>% as.vector()
+
+sample <- c(a,b,c)
+
+# sample <- item_yields %>% 
+#   dplyr::filter(DESCRIPTION == item) %>% 
+#   dplyr::select(LOTNO) %>% unlist() %>% 
+#   sample(16)
+
+sec_y_scale=20000
+sec_y_shift=1500
+
+press_joined_item <- press_joined %>% 
+  dplyr::filter(LOTNO %in% sample) %>%
+  left_join(
+    item_yields %>% 
+      dplyr::filter(DESCRIPTION == item) %>% 
+      dplyr::select(LOTNO,total_item_pct_yield)
+    ) %>% 
+    mutate(classify = factor(case_when( total_item_pct_yield >= 0.95 ~ "over95",
+                               total_item_pct_yield >= 0.5 ~  "over50",
+                               TRUE ~ "below50")))
+
+press_joined_item %>% 
+
+  # kiln temp, setpoint, pressure
+  ggplot(aes(x=time))+
+  geom_line(aes(y=avg_kiln_temp))+
+  geom_line(aes(y=setpoint),color='grey50',linetype='dashed')+
+  geom_point(aes(y=pressure * sec_y_scale + sec_y_shift),alpha=.1,size=.1)+
+  
+  # color points
+  geom_point(aes(y=press_greater_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  geom_point(aes(y=press_betw_02_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green3')+
+  geom_point(aes(y=press_betw_01_02 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green')+
+  geom_point(aes(y=press_betw_00_01 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='yellow2')+
+  geom_point(aes(y=press_less_00    * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  
+  geom_ribbon(aes(ymin = auc_min, ymax = auc_max),fill='pink',alpha=1)+
+
+  scale_y_continuous(name = "Kiln temp (F)",
+                     breaks = sort(c(seq(0,3000,1000),400,600,1200)),
+                     sec.axis = sec_axis(~. / sec_y_scale - (sec_y_shift / sec_y_scale),
+                                         name = "Pressure",
+                                         breaks = seq(-.1,.1,.01)
+                     )
+  )+
+  scale_x_continuous(name = "Hours", 
+                     labels = number_format(scale=1/60),
+                     breaks = sort(c(seq(0,100*60,12*60)))
+  )+
+
+  # yields
+  geom_label(data = press_joined_item %>% dplyr::filter(LOTNO %in% sample) %>%
+               distinct(total_item_pct_yield),
+             aes(x = 60 * 65, y = -0.04 * sec_y_scale + sec_y_shift,
+                 label = paste0( "Yield: ", mypercent(total_item_pct_yield) )
+             ),
+             label.padding = unit(0.2, "lines"),
+             hjust=1,vjust=.5,
+             fill='lightskyblue',
+             label.size=.1
+             ) +
+  facet_wrap(~LOTNO)
+```
+
+##### Yields > 95%
+```{r}
+
+press_joined_item %>% 
+
+  dplyr::filter(classify == "over95") %>% 
+  
+  # kiln temp, setpoint, pressure
+  ggplot(aes(x=time))+
+  geom_line(aes(y=avg_kiln_temp))+
+  geom_line(aes(y=setpoint),color='grey50',linetype='dashed')+
+  geom_point(aes(y=pressure * sec_y_scale + sec_y_shift),alpha=.1,size=.1)+
+  
+  # color points
+  geom_point(aes(y=press_greater_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  geom_point(aes(y=press_betw_02_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green3')+
+  geom_point(aes(y=press_betw_01_02 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green')+
+  geom_point(aes(y=press_betw_00_01 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='yellow2')+
+  geom_point(aes(y=press_less_00    * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  
+  geom_ribbon(aes(ymin = auc_min, ymax = auc_max),fill='pink',alpha=1)+
+
+  scale_y_continuous(name = "Kiln temp (F)",
+                     breaks = sort(c(seq(0,3000,1000),400,600,1200)),
+                     sec.axis = sec_axis(~. / sec_y_scale - (sec_y_shift / sec_y_scale),
+                                         name = "Pressure",
+                                         breaks = seq(-.1,.1,.01)
+                     )
+  )+
+  scale_x_continuous(name = "Hours", 
+                     labels = number_format(scale=1/60),
+                     breaks = sort(c(seq(0,100*60,12*60)))
+  )+
+
+  # yields
+  geom_label(data = press_joined_item %>% dplyr::filter(LOTNO %in% sample) %>%
+               distinct(total_item_pct_yield),
+             aes(x = 60 * 65, y = -0.04 * sec_y_scale + sec_y_shift,
+                 label = paste0( "Yield: ", mypercent(total_item_pct_yield) )
+             ),
+             label.padding = unit(0.2, "lines"),
+             hjust=1,vjust=.5,
+             fill='lightskyblue',
+             label.size=.1
+             ) +
+  facet_wrap(~LOTNO)
+```
+
+##### > 50%
+
+```{r}
+press_joined_item %>% 
+
+  dplyr::filter(classify == "over50") %>% 
+  
+  # kiln temp, setpoint, pressure
+  ggplot(aes(x=time))+
+  geom_line(aes(y=avg_kiln_temp))+
+  geom_line(aes(y=setpoint),color='grey50',linetype='dashed')+
+  geom_point(aes(y=pressure * sec_y_scale + sec_y_shift),alpha=.1,size=.1)+
+  
+  # color points
+  geom_point(aes(y=press_greater_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  geom_point(aes(y=press_betw_02_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green3')+
+  geom_point(aes(y=press_betw_01_02 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green')+
+  geom_point(aes(y=press_betw_00_01 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='yellow2')+
+  geom_point(aes(y=press_less_00    * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  
+  geom_ribbon(aes(ymin = auc_min, ymax = auc_max),fill='pink',alpha=1)+
+
+  scale_y_continuous(name = "Kiln temp (F)",
+                     breaks = sort(c(seq(0,3000,1000),400,600,1200)),
+                     sec.axis = sec_axis(~. / sec_y_scale - (sec_y_shift / sec_y_scale),
+                                         name = "Pressure",
+                                         breaks = seq(-.1,.1,.01)
+                     )
+  )+
+  scale_x_continuous(name = "Hours", 
+                     labels = number_format(scale=1/60),
+                     breaks = sort(c(seq(0,100*60,12*60)))
+  )+
+
+  # yields
+  geom_label(data = press_joined_item %>% dplyr::filter(LOTNO %in% sample) %>%
+               distinct(total_item_pct_yield),
+             aes(x = 60 * 65, y = -0.04 * sec_y_scale + sec_y_shift,
+                 label = paste0( "Yield: ", mypercent(total_item_pct_yield) )
+             ),
+             label.padding = unit(0.2, "lines"),
+             hjust=1,vjust=.5,
+             fill='lightskyblue',
+             label.size=.1
+             ) +
+  facet_wrap(~LOTNO)
+```
+
+##### < 50%
+
+```{r}
+press_joined_item %>% 
+
+  dplyr::filter(classify == "below50") %>% 
+  
+  # kiln temp, setpoint, pressure
+  ggplot(aes(x=time))+
+  geom_line(aes(y=avg_kiln_temp))+
+  geom_line(aes(y=setpoint),color='grey50',linetype='dashed')+
+  geom_point(aes(y=pressure * sec_y_scale + sec_y_shift),alpha=.1,size=.1)+
+  
+  # color points
+  geom_point(aes(y=press_greater_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  geom_point(aes(y=press_betw_02_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green3')+
+  geom_point(aes(y=press_betw_01_02 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green')+
+  geom_point(aes(y=press_betw_00_01 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='yellow2')+
+  geom_point(aes(y=press_less_00    * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  
+  geom_ribbon(aes(ymin = auc_min, ymax = auc_max),fill='pink',alpha=1)+
+
+  scale_y_continuous(name = "Kiln temp (F)",
+                     breaks = sort(c(seq(0,3000,1000),400,600,1200)),
+                     sec.axis = sec_axis(~. / sec_y_scale - (sec_y_shift / sec_y_scale),
+                                         name = "Pressure",
+                                         breaks = seq(-.1,.1,.01)
+                     )
+  )+
+  scale_x_continuous(name = "Hours", 
+                     labels = number_format(scale=1/60),
+                     breaks = sort(c(seq(0,100*60,12*60)))
+  )+
+
+  # yields
+  geom_label(data = press_joined_item %>% dplyr::filter(LOTNO %in% sample) %>%
+               distinct(total_item_pct_yield),
+             aes(x = 60 * 65, y = -0.04 * sec_y_scale + sec_y_shift,
+                 label = paste0( "Yield: ", mypercent(total_item_pct_yield) )
+             ),
+             label.padding = unit(0.2, "lines"),
+             hjust=1,vjust=.5,
+             fill='lightskyblue',
+             label.size=.1
+             ) +
+  facet_wrap(~LOTNO)
+```
+
+### 2"ODX.5",30PPI,PSZM,SEC {.tabset}
+
+#### Item yield over time 
+
+```{r}
+item <- count(item_yields$DESCRIPTION) %>% 
+  arrange(-freq) %>% 
+  slice(7) %>% 
+  dplyr::select(x) %>% 
+  unlist()
+
+item_df <- item_yields %>% 
+  dplyr::filter(DESCRIPTION == item) %>% 
+  mutate(Yields = case_when( total_item_pct_yield >= 0.95 ~ "over95",
+                               total_item_pct_yield >= 0.5 ~  "over50",
+                               TRUE ~ "below50"))
+
+item_df %>%    
+  ggplot(aes(x=FIRE_DATE,y=total_item_pct_yield))+
+  geom_point(aes(fill=Yields),size=3, shape=21, alpha=.8)+
+  geom_smooth(method=lm, se=FALSE)+
+  geom_line(alpha=.2)+
+  # theme(legend.position = "none")+
+  scale_y_continuous(limits = c(0,1), labels = percent_format())+
+  scale_fill_brewer(type="qual",palette=2)+
+  ggtitle(paste0(item))+
+  labs(x="Fire date", y="Item yield")
+```
+
+#### LASSO
+
+```{r}
+df <- item_df %>% 
+  dplyr::select(total_item_pct_yield:aucDiff)
+
+# normalize all predictors
+df_norm <- recipe(total_item_pct_yield ~ ., data = df) %>% 
+  step_normalize(all_predictors()) %>%
+  prep() %>% 
+  juice()
+
+# split predictors and responses
+y = as.vector(df_norm$total_item_pct_yield)
+x = as.matrix(df_norm[-19])
+
+set.seed(344)
+# find best lambda value
+cv.glmmod   <- cv.glmnet(x,y,alpha=1)
+# plot(cv.glmmod)
+best.lambda <- cv.glmmod$lambda.min
+
+set.seed(344)
+# produce model
+glmmod <- glmnet(x, y, alpha=1, lambda = best.lambda)
+
+# store coefficient values
+coefs = data.frame(coef(glmmod)[,1])
+
+# plot variable importance
+tibble(data.frame(cbind(rownames(coefs), coefs))) %>% 
+  set_colnames(c("Variable", "Importance")) %>% 
+  mutate(Sign = if_else(Importance < 0, "Neg", "Pos"),
+         Importance = abs(Importance),
+         Variable = fct_reorder(Variable, Importance),
+         HJ = if_else(Importance > .5, 1,0)) %>% 
+  arrange(-Importance) %>% 
+  ggplot(aes(x=Importance,y=Variable,fill=Sign))+
+  geom_col()+
+  geom_text(aes(label=round(Importance,5), hjust=HJ))+
+  ggtitle(paste0(item, ", VI by LASSO"))
+```
+
+#### Feature plots
+
+```{r}
+item_df %>%  
+  dplyr::select(total_item_pct_yield:Yields) %>% 
+  pivot_longer(cols = precip:aucDiff, names_to = "measures", values_to="values") %>% 
+  ggplot(aes(x=values,y=total_item_pct_yield))+
+  geom_point(aes(fill=Yields),size=2,shape=21,alpha=.8)+
+  scale_y_continuous(limits = c(0,1), labels = percent_format())+
+  facet_wrap(~measures,scales='free_x')+
+  geom_smooth(method=lm, se=FALSE)
+```
+
+#### Visualize kiln plots {.tabset}
+
+##### All
+
+```{r}
+
+set.seed(5532)
+a <- item_yields %>% 
+  dplyr::filter(DESCRIPTION == item) %>% 
+  dplyr::filter(total_item_pct_yield <= .5) %>% 
+  select(LOTNO) %>% unlist() %>% as.vector()
+set.seed(5532)
+b <- item_yields %>% 
+  dplyr::filter(DESCRIPTION == item) %>% 
+  dplyr::filter(total_item_pct_yield >= .95) %>% 
+  select(LOTNO) %>% unlist() %>% sample(8) %>% as.vector()
+set.seed(5532)
+c <- item_yields %>% 
+  dplyr::filter(DESCRIPTION == item) %>% 
+  dplyr::filter((total_item_pct_yield >.5) & (total_item_pct_yield < .95)) %>% 
+  select(LOTNO)  %>% unlist() %>% sample(7) %>% as.vector()
+
+sample <- c(a,b,c)
+
+# sample <- item_yields %>% 
+#   dplyr::filter(DESCRIPTION == item) %>% 
+#   dplyr::select(LOTNO) %>% unlist() %>% 
+#   sample(16)
+
+sec_y_scale=20000
+sec_y_shift=1500
+
+press_joined_item <- press_joined %>% 
+  dplyr::filter(LOTNO %in% sample) %>%
+  left_join(
+    item_yields %>% 
+      dplyr::filter(DESCRIPTION == item) %>% 
+      dplyr::select(LOTNO,total_item_pct_yield)
+    ) %>% 
+    mutate(classify = factor(case_when( total_item_pct_yield >= 0.95 ~ "over95",
+                               total_item_pct_yield >= 0.5 ~  "over50",
+                               TRUE ~ "below50")))
+
+press_joined_item %>% 
+
+  # kiln temp, setpoint, pressure
+  ggplot(aes(x=time))+
+  geom_line(aes(y=avg_kiln_temp))+
+  geom_line(aes(y=setpoint),color='grey50',linetype='dashed')+
+  geom_point(aes(y=pressure * sec_y_scale + sec_y_shift),alpha=.1,size=.1)+
+  
+  # color points
+  geom_point(aes(y=press_greater_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  geom_point(aes(y=press_betw_02_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green3')+
+  geom_point(aes(y=press_betw_01_02 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green')+
+  geom_point(aes(y=press_betw_00_01 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='yellow2')+
+  geom_point(aes(y=press_less_00    * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  
+  geom_ribbon(aes(ymin = auc_min, ymax = auc_max),fill='pink',alpha=1)+
+
+  scale_y_continuous(name = "Kiln temp (F)",
+                     breaks = sort(c(seq(0,3000,1000),400,600,1200)),
+                     sec.axis = sec_axis(~. / sec_y_scale - (sec_y_shift / sec_y_scale),
+                                         name = "Pressure",
+                                         breaks = seq(-.1,.1,.01)
+                     )
+  )+
+  scale_x_continuous(name = "Hours", 
+                     labels = number_format(scale=1/60),
+                     breaks = sort(c(seq(0,100*60,12*60)))
+  )+
+
+  # yields
+  geom_label(data = press_joined_item %>% dplyr::filter(LOTNO %in% sample) %>%
+               distinct(total_item_pct_yield),
+             aes(x = 60 * 65, y = -0.04 * sec_y_scale + sec_y_shift,
+                 label = paste0( "Yield: ", mypercent(total_item_pct_yield) )
+             ),
+             label.padding = unit(0.2, "lines"),
+             hjust=1,vjust=.5,
+             fill='lightskyblue',
+             label.size=.1
+             ) +
+  facet_wrap(~LOTNO)
+```
+
+
+##### Yields > 95%
+```{r}
+
+press_joined_item %>% 
+
+  dplyr::filter(classify == "over95") %>% 
+  
+  # kiln temp, setpoint, pressure
+  ggplot(aes(x=time))+
+  geom_line(aes(y=avg_kiln_temp))+
+  geom_line(aes(y=setpoint),color='grey50',linetype='dashed')+
+  geom_point(aes(y=pressure * sec_y_scale + sec_y_shift),alpha=.1,size=.1)+
+  
+  # color points
+  geom_point(aes(y=press_greater_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  geom_point(aes(y=press_betw_02_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green3')+
+  geom_point(aes(y=press_betw_01_02 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green')+
+  geom_point(aes(y=press_betw_00_01 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='yellow2')+
+  geom_point(aes(y=press_less_00    * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  
+  geom_ribbon(aes(ymin = auc_min, ymax = auc_max),fill='pink',alpha=1)+
+
+  scale_y_continuous(name = "Kiln temp (F)",
+                     breaks = sort(c(seq(0,3000,1000),400,600,1200)),
+                     sec.axis = sec_axis(~. / sec_y_scale - (sec_y_shift / sec_y_scale),
+                                         name = "Pressure",
+                                         breaks = seq(-.1,.1,.01)
+                     )
+  )+
+  scale_x_continuous(name = "Hours", 
+                     labels = number_format(scale=1/60),
+                     breaks = sort(c(seq(0,100*60,12*60)))
+  )+
+
+  # yields
+  geom_label(data = press_joined_item %>% dplyr::filter(LOTNO %in% sample) %>%
+               distinct(total_item_pct_yield),
+             aes(x = 60 * 65, y = -0.04 * sec_y_scale + sec_y_shift,
+                 label = paste0( "Yield: ", mypercent(total_item_pct_yield) )
+             ),
+             label.padding = unit(0.2, "lines"),
+             hjust=1,vjust=.5,
+             fill='lightskyblue',
+             label.size=.1
+             ) +
+  facet_wrap(~LOTNO)
+```
+
+##### > 50%
+
+```{r}
+press_joined_item %>% 
+
+  dplyr::filter(classify == "over50") %>% 
+  
+  # kiln temp, setpoint, pressure
+  ggplot(aes(x=time))+
+  geom_line(aes(y=avg_kiln_temp))+
+  geom_line(aes(y=setpoint),color='grey50',linetype='dashed')+
+  geom_point(aes(y=pressure * sec_y_scale + sec_y_shift),alpha=.1,size=.1)+
+  
+  # color points
+  geom_point(aes(y=press_greater_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  geom_point(aes(y=press_betw_02_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green3')+
+  geom_point(aes(y=press_betw_01_02 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green')+
+  geom_point(aes(y=press_betw_00_01 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='yellow2')+
+  geom_point(aes(y=press_less_00    * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  
+  geom_ribbon(aes(ymin = auc_min, ymax = auc_max),fill='pink',alpha=1)+
+
+  scale_y_continuous(name = "Kiln temp (F)",
+                     breaks = sort(c(seq(0,3000,1000),400,600,1200)),
+                     sec.axis = sec_axis(~. / sec_y_scale - (sec_y_shift / sec_y_scale),
+                                         name = "Pressure",
+                                         breaks = seq(-.1,.1,.01)
+                     )
+  )+
+  scale_x_continuous(name = "Hours", 
+                     labels = number_format(scale=1/60),
+                     breaks = sort(c(seq(0,100*60,12*60)))
+  )+
+
+  # yields
+  geom_label(data = press_joined_item %>% dplyr::filter(LOTNO %in% sample) %>%
+               distinct(total_item_pct_yield),
+             aes(x = 60 * 65, y = -0.04 * sec_y_scale + sec_y_shift,
+                 label = paste0( "Yield: ", mypercent(total_item_pct_yield) )
+             ),
+             label.padding = unit(0.2, "lines"),
+             hjust=1,vjust=.5,
+             fill='lightskyblue',
+             label.size=.1
+             ) +
+  facet_wrap(~LOTNO)
+```
+
+
+##### < 50%
+
+```{r}
+press_joined_item %>% 
+
+  dplyr::filter(classify == "below50") %>% 
+  
+  # kiln temp, setpoint, pressure
+  ggplot(aes(x=time))+
+  geom_line(aes(y=avg_kiln_temp))+
+  geom_line(aes(y=setpoint),color='grey50',linetype='dashed')+
+  geom_point(aes(y=pressure * sec_y_scale + sec_y_shift),alpha=.1,size=.1)+
+  
+  # color points
+  geom_point(aes(y=press_greater_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  geom_point(aes(y=press_betw_02_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green3')+
+  geom_point(aes(y=press_betw_01_02 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green')+
+  geom_point(aes(y=press_betw_00_01 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='yellow2')+
+  geom_point(aes(y=press_less_00    * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  
+  geom_ribbon(aes(ymin = auc_min, ymax = auc_max),fill='pink',alpha=1)+
+
+  scale_y_continuous(name = "Kiln temp (F)",
+                     breaks = sort(c(seq(0,3000,1000),400,600,1200)),
+                     sec.axis = sec_axis(~. / sec_y_scale - (sec_y_shift / sec_y_scale),
+                                         name = "Pressure",
+                                         breaks = seq(-.1,.1,.01)
+                     )
+  )+
+  scale_x_continuous(name = "Hours", 
+                     labels = number_format(scale=1/60),
+                     breaks = sort(c(seq(0,100*60,12*60)))
+  )+
+
+  # yields
+  geom_label(data = press_joined_item %>% dplyr::filter(LOTNO %in% sample) %>%
+               distinct(total_item_pct_yield),
+             aes(x = 60 * 65, y = -0.04 * sec_y_scale + sec_y_shift,
+                 label = paste0( "Yield: ", mypercent(total_item_pct_yield) )
+             ),
+             label.padding = unit(0.2, "lines"),
+             hjust=1,vjust=.5,
+             fill='lightskyblue',
+             label.size=.1
+             ) +
+  facet_wrap(~LOTNO)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+### 44MMODX26MMIDX15MM,45PPI,AL99,FC {.tabset}
+
+#### Item yield over time 
+
+```{r}
+item <- count(item_yields$DESCRIPTION) %>% 
+  arrange(-freq) %>% 
+  slice(9) %>% 
+  dplyr::select(x) %>% 
+  unlist()
+
+item_df <- item_yields %>% 
+  dplyr::filter(DESCRIPTION == item) %>% 
+  mutate(Yields = case_when( total_item_pct_yield >= 0.95 ~ "over95",
+                               total_item_pct_yield >= 0.5 ~  "over50",
+                               TRUE ~ "below50"))
+
+item_df %>%    
+  ggplot(aes(x=FIRE_DATE,y=total_item_pct_yield))+
+  geom_point(aes(fill=Yields),size=3, shape=21, alpha=.8)+
+  geom_smooth(method=lm, se=FALSE)+
+  geom_line(alpha=.2)+
+  # theme(legend.position = "none")+
+  scale_y_continuous(limits = c(0,1), labels = percent_format())+
+  scale_fill_brewer(type="qual",palette=2)+
+  ggtitle(paste0(item))+
+  labs(x="Fire date", y="Item yield")
+```
+
+#### LASSO
+
+```{r}
+df <- item_df %>% 
+  dplyr::select(total_item_pct_yield:aucDiff)
+
+# normalize all predictors
+df_norm <- recipe(total_item_pct_yield ~ ., data = df) %>% 
+  step_normalize(all_predictors()) %>%
+  prep() %>% 
+  juice()
+
+# split predictors and responses
+y = as.vector(df_norm$total_item_pct_yield)
+x = as.matrix(df_norm[-19])
+
+set.seed(344)
+# find best lambda value
+cv.glmmod   <- cv.glmnet(x,y,alpha=1)
+# plot(cv.glmmod)
+best.lambda <- cv.glmmod$lambda.min
+
+set.seed(344)
+# produce model
+glmmod <- glmnet(x, y, alpha=1, lambda = best.lambda)
+
+# store coefficient values
+coefs = data.frame(coef(glmmod)[,1])
+
+# plot variable importance
+tibble(data.frame(cbind(rownames(coefs), coefs))) %>% 
+  set_colnames(c("Variable", "Importance")) %>% 
+  mutate(Sign = if_else(Importance < 0, "Neg", "Pos"),
+         Importance = abs(Importance),
+         Variable = fct_reorder(Variable, Importance),
+         HJ = if_else(Importance > .5, 1,0)) %>% 
+  arrange(-Importance) %>% 
+  ggplot(aes(x=Importance,y=Variable,fill=Sign))+
+  geom_col()+
+  geom_text(aes(label=round(Importance,5), hjust=HJ))+
+  ggtitle(paste0(item, ", VI by LASSO"))
+```
+
+#### Feature plots
+
+```{r}
+item_df %>%  
+  dplyr::select(total_item_pct_yield:Yields) %>% 
+  pivot_longer(cols = precip:aucDiff, names_to = "measures", values_to="values") %>% 
+  ggplot(aes(x=values,y=total_item_pct_yield))+
+  geom_point(aes(fill=Yields),size=2,shape=21,alpha=.8)+
+  scale_y_continuous(limits = c(0,1), labels = percent_format())+
+  facet_wrap(~measures,scales='free_x')+
+  geom_smooth(method=lm, se=FALSE)
+```
+
+#### Visualize kiln plots {.tabset}
+
+##### All
+
+```{r}
+
+set.seed(5532)
+a <- item_yields %>% 
+  dplyr::filter(DESCRIPTION == item) %>% 
+  dplyr::filter(total_item_pct_yield <= .5) %>% 
+  select(LOTNO) %>% unlist() %>% sample(6) %>% as.vector()
+set.seed(5532)
+b <- item_yields %>% 
+  dplyr::filter(DESCRIPTION == item) %>% 
+  dplyr::filter(total_item_pct_yield >= .95) %>% 
+  select(LOTNO) %>% unlist() %>% sample(4) %>% as.vector()
+set.seed(5532)
+c <- item_yields %>% 
+  dplyr::filter(DESCRIPTION == item) %>% 
+  dplyr::filter((total_item_pct_yield >.5) & (total_item_pct_yield < .95)) %>% 
+  select(LOTNO)  %>% unlist() %>% sample(6) %>% as.vector()
+
+sample <- c(a,b,c)
+
+# sample <- item_yields %>% 
+#   dplyr::filter(DESCRIPTION == item) %>% 
+#   dplyr::select(LOTNO) %>% unlist() %>% 
+#   sample(16)
+
+sec_y_scale=20000
+sec_y_shift=1500
+
+press_joined_item <- press_joined %>% 
+  dplyr::filter(LOTNO %in% sample) %>%
+  left_join(
+    item_yields %>% 
+      dplyr::filter(DESCRIPTION == item) %>% 
+      dplyr::select(LOTNO,total_item_pct_yield)
+    ) %>% 
+    mutate(classify = factor(case_when( total_item_pct_yield >= 0.95 ~ "over95",
+                               total_item_pct_yield >= 0.5 ~  "over50",
+                               TRUE ~ "below50")))
+
+press_joined_item %>% 
+
+  # kiln temp, setpoint, pressure
+  ggplot(aes(x=time))+
+  geom_line(aes(y=avg_kiln_temp))+
+  geom_line(aes(y=setpoint),color='grey50',linetype='dashed')+
+  geom_point(aes(y=pressure * sec_y_scale + sec_y_shift),alpha=.1,size=.1)+
+  
+  # color points
+  geom_point(aes(y=press_greater_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  geom_point(aes(y=press_betw_02_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green3')+
+  geom_point(aes(y=press_betw_01_02 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green')+
+  geom_point(aes(y=press_betw_00_01 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='yellow2')+
+  geom_point(aes(y=press_less_00    * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  
+  geom_ribbon(aes(ymin = auc_min, ymax = auc_max),fill='pink',alpha=1)+
+
+  scale_y_continuous(name = "Kiln temp (F)",
+                     breaks = sort(c(seq(0,3000,1000),400,600,1200)),
+                     sec.axis = sec_axis(~. / sec_y_scale - (sec_y_shift / sec_y_scale),
+                                         name = "Pressure",
+                                         breaks = seq(-.1,.1,.01)
+                     )
+  )+
+  scale_x_continuous(name = "Hours", 
+                     labels = number_format(scale=1/60),
+                     breaks = sort(c(seq(0,100*60,12*60)))
+  )+
+
+  # yields
+  geom_label(data = press_joined_item %>% dplyr::filter(LOTNO %in% sample) %>%
+               distinct(total_item_pct_yield),
+             aes(x = 60 * 65, y = -0.04 * sec_y_scale + sec_y_shift,
+                 label = paste0( "Yield: ", mypercent(total_item_pct_yield) )
+             ),
+             label.padding = unit(0.2, "lines"),
+             hjust=1,vjust=.5,
+             fill='lightskyblue',
+             label.size=.1
+             ) +
+  facet_wrap(~LOTNO)
+```
+
+
+##### Yields > 95%
+```{r}
+
+press_joined_item %>% 
+
+  dplyr::filter(classify == "over95") %>% 
+  
+  # kiln temp, setpoint, pressure
+  ggplot(aes(x=time))+
+  geom_line(aes(y=avg_kiln_temp))+
+  geom_line(aes(y=setpoint),color='grey50',linetype='dashed')+
+  geom_point(aes(y=pressure * sec_y_scale + sec_y_shift),alpha=.1,size=.1)+
+  
+  # color points
+  geom_point(aes(y=press_greater_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  geom_point(aes(y=press_betw_02_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green3')+
+  geom_point(aes(y=press_betw_01_02 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green')+
+  geom_point(aes(y=press_betw_00_01 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='yellow2')+
+  geom_point(aes(y=press_less_00    * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  
+  geom_ribbon(aes(ymin = auc_min, ymax = auc_max),fill='pink',alpha=1)+
+
+  scale_y_continuous(name = "Kiln temp (F)",
+                     breaks = sort(c(seq(0,3000,1000),400,600,1200)),
+                     sec.axis = sec_axis(~. / sec_y_scale - (sec_y_shift / sec_y_scale),
+                                         name = "Pressure",
+                                         breaks = seq(-.1,.1,.01)
+                     )
+  )+
+  scale_x_continuous(name = "Hours", 
+                     labels = number_format(scale=1/60),
+                     breaks = sort(c(seq(0,100*60,12*60)))
+  )+
+
+  # yields
+  geom_label(data = press_joined_item %>% dplyr::filter(LOTNO %in% sample) %>%
+               distinct(total_item_pct_yield),
+             aes(x = 60 * 65, y = -0.04 * sec_y_scale + sec_y_shift,
+                 label = paste0( "Yield: ", mypercent(total_item_pct_yield) )
+             ),
+             label.padding = unit(0.2, "lines"),
+             hjust=1,vjust=.5,
+             fill='lightskyblue',
+             label.size=.1
+             ) +
+  facet_wrap(~LOTNO)
+```
+
+##### > 50%
+
+```{r}
+press_joined_item %>% 
+
+  dplyr::filter(classify == "over50") %>% 
+  
+  # kiln temp, setpoint, pressure
+  ggplot(aes(x=time))+
+  geom_line(aes(y=avg_kiln_temp))+
+  geom_line(aes(y=setpoint),color='grey50',linetype='dashed')+
+  geom_point(aes(y=pressure * sec_y_scale + sec_y_shift),alpha=.1,size=.1)+
+  
+  # color points
+  geom_point(aes(y=press_greater_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  geom_point(aes(y=press_betw_02_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green3')+
+  geom_point(aes(y=press_betw_01_02 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green')+
+  geom_point(aes(y=press_betw_00_01 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='yellow2')+
+  geom_point(aes(y=press_less_00    * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  
+  geom_ribbon(aes(ymin = auc_min, ymax = auc_max),fill='pink',alpha=1)+
+
+  scale_y_continuous(name = "Kiln temp (F)",
+                     breaks = sort(c(seq(0,3000,1000),400,600,1200)),
+                     sec.axis = sec_axis(~. / sec_y_scale - (sec_y_shift / sec_y_scale),
+                                         name = "Pressure",
+                                         breaks = seq(-.1,.1,.01)
+                     )
+  )+
+  scale_x_continuous(name = "Hours", 
+                     labels = number_format(scale=1/60),
+                     breaks = sort(c(seq(0,100*60,12*60)))
+  )+
+
+  # yields
+  geom_label(data = press_joined_item %>% dplyr::filter(LOTNO %in% sample) %>%
+               distinct(total_item_pct_yield),
+             aes(x = 60 * 65, y = -0.04 * sec_y_scale + sec_y_shift,
+                 label = paste0( "Yield: ", mypercent(total_item_pct_yield) )
+             ),
+             label.padding = unit(0.2, "lines"),
+             hjust=1,vjust=.5,
+             fill='lightskyblue',
+             label.size=.1
+             ) +
+  facet_wrap(~LOTNO)
+```
+
+
+##### < 50%
+
+```{r}
+press_joined_item %>% 
+
+  dplyr::filter(classify == "below50") %>% 
+  
+  # kiln temp, setpoint, pressure
+  ggplot(aes(x=time))+
+  geom_line(aes(y=avg_kiln_temp))+
+  geom_line(aes(y=setpoint),color='grey50',linetype='dashed')+
+  geom_point(aes(y=pressure * sec_y_scale + sec_y_shift),alpha=.1,size=.1)+
+  
+  # color points
+  geom_point(aes(y=press_greater_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  geom_point(aes(y=press_betw_02_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green3')+
+  geom_point(aes(y=press_betw_01_02 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green')+
+  geom_point(aes(y=press_betw_00_01 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='yellow2')+
+  geom_point(aes(y=press_less_00    * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  
+  geom_ribbon(aes(ymin = auc_min, ymax = auc_max),fill='pink',alpha=1)+
+
+  scale_y_continuous(name = "Kiln temp (F)",
+                     breaks = sort(c(seq(0,3000,1000),400,600,1200)),
+                     sec.axis = sec_axis(~. / sec_y_scale - (sec_y_shift / sec_y_scale),
+                                         name = "Pressure",
+                                         breaks = seq(-.1,.1,.01)
+                     )
+  )+
+  scale_x_continuous(name = "Hours", 
+                     labels = number_format(scale=1/60),
+                     breaks = sort(c(seq(0,100*60,12*60)))
+  )+
+
+  # yields
+  geom_label(data = press_joined_item %>% dplyr::filter(LOTNO %in% sample) %>%
+               distinct(total_item_pct_yield),
+             aes(x = 60 * 65, y = -0.04 * sec_y_scale + sec_y_shift,
+                 label = paste0( "Yield: ", mypercent(total_item_pct_yield) )
+             ),
+             label.padding = unit(0.2, "lines"),
+             hjust=1,vjust=.5,
+             fill='lightskyblue',
+             label.size=.1
+             ) +
+  facet_wrap(~LOTNO)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+### 10 TODX2.5 3 STRIP,10 20PPI,PSZM,FEC {.tabset}
+
+#### Item yield over time 
+
+```{r}
+item <- count(item_yields$DESCRIPTION) %>% 
+  arrange(-freq) %>% 
+  slice(12) %>% 
+  dplyr::select(x) %>% 
+  unlist()
+
+item_df <- item_yields %>% 
+  dplyr::filter(DESCRIPTION == item) %>% 
+  mutate(Yields = case_when( total_item_pct_yield >= 0.95 ~ "over95",
+                               total_item_pct_yield >= 0.5 ~  "over50",
+                               TRUE ~ "below50"))
+
+item_df %>%    
+  ggplot(aes(x=FIRE_DATE,y=total_item_pct_yield))+
+  geom_point(aes(fill=Yields),size=3, shape=21, alpha=.8)+
+  geom_smooth(method=lm, se=FALSE)+
+  geom_line(alpha=.2)+
+  # theme(legend.position = "none")+
+  scale_y_continuous(limits = c(0,1), labels = percent_format())+
+  scale_fill_brewer(type="qual",palette=2)+
+  ggtitle(paste0(item))+
+  labs(x="Fire date", y="Item yield")
+```
+
+#### LASSO
+
+```{r}
+df <- item_df %>% 
+  dplyr::select(total_item_pct_yield:aucDiff)
+
+# normalize all predictors
+df_norm <- recipe(total_item_pct_yield ~ ., data = df) %>% 
+  step_normalize(all_predictors()) %>%
+  prep() %>% 
+  juice()
+
+# split predictors and responses
+y = as.vector(df_norm$total_item_pct_yield)
+x = as.matrix(df_norm[-19])
+
+set.seed(344)
+# find best lambda value
+cv.glmmod   <- cv.glmnet(x,y,alpha=1)
+# plot(cv.glmmod)
+best.lambda <- cv.glmmod$lambda.min
+
+set.seed(344)
+# produce model
+glmmod <- glmnet(x, y, alpha=1, lambda = best.lambda)
+
+# store coefficient values
+coefs = data.frame(coef(glmmod)[,1])
+
+# plot variable importance
+tibble(data.frame(cbind(rownames(coefs), coefs))) %>% 
+  set_colnames(c("Variable", "Importance")) %>% 
+  mutate(Sign = if_else(Importance < 0, "Neg", "Pos"),
+         Importance = abs(Importance),
+         Variable = fct_reorder(Variable, Importance),
+         HJ = if_else(Importance > .5, 1,0)) %>% 
+  arrange(-Importance) %>% 
+  ggplot(aes(x=Importance,y=Variable,fill=Sign))+
+  geom_col()+
+  geom_text(aes(label=round(Importance,5), hjust=HJ))+
+  ggtitle(paste0(item, ", VI by LASSO"))
+```
+
+#### Feature plots
+
+```{r}
+item_df %>%  
+  dplyr::select(total_item_pct_yield:Yields) %>% 
+  pivot_longer(cols = precip:aucDiff, names_to = "measures", values_to="values") %>% 
+  ggplot(aes(x=values,y=total_item_pct_yield))+
+  geom_point(aes(fill=Yields),size=2,shape=21,alpha=.8)+
+  scale_y_continuous(limits = c(0,1), labels = percent_format())+
+  facet_wrap(~measures,scales='free_x')+
+  geom_smooth(method=lm, se=FALSE)
+```
+
+#### Visualize kiln plots {.tabset}
+
+##### All
+
+```{r}
+
+set.seed(5532)
+a <- item_yields %>% 
+  dplyr::filter(DESCRIPTION == item) %>% 
+  dplyr::filter(total_item_pct_yield <= .5) %>% 
+  select(LOTNO) %>% unlist() %>% sample(5) %>% as.vector()
+set.seed(5532)
+b <- item_yields %>% 
+  dplyr::filter(DESCRIPTION == item) %>% 
+  dplyr::filter(total_item_pct_yield >= .95) %>% 
+  select(LOTNO) %>% unlist() %>% sample(6) %>% as.vector()
+set.seed(5532)
+c <- item_yields %>% 
+  dplyr::filter(DESCRIPTION == item) %>% 
+  dplyr::filter((total_item_pct_yield >.5) & (total_item_pct_yield < .95)) %>% 
+  select(LOTNO)  %>% unlist() %>% sample(5) %>% as.vector()
+
+sample <- c(a,b,c)
+
+# sample <- item_yields %>% 
+#   dplyr::filter(DESCRIPTION == item) %>% 
+#   dplyr::select(LOTNO) %>% unlist() %>% 
+#   sample(16)
+
+sec_y_scale=20000
+sec_y_shift=1500
+
+press_joined_item <- press_joined %>% 
+  dplyr::filter(LOTNO %in% sample) %>%
+  left_join(
+    item_yields %>% 
+      dplyr::filter(DESCRIPTION == item) %>% 
+      dplyr::select(LOTNO,total_item_pct_yield)
+    ) %>% 
+    mutate(classify = factor(case_when( total_item_pct_yield >= 0.95 ~ "over95",
+                               total_item_pct_yield >= 0.5 ~  "over50",
+                               TRUE ~ "below50")))
+
+press_joined_item %>% 
+
+  # kiln temp, setpoint, pressure
+  ggplot(aes(x=time))+
+  geom_line(aes(y=avg_kiln_temp))+
+  geom_line(aes(y=setpoint),color='grey50',linetype='dashed')+
+  geom_point(aes(y=pressure * sec_y_scale + sec_y_shift),alpha=.1,size=.1)+
+  
+  # color points
+  geom_point(aes(y=press_greater_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  geom_point(aes(y=press_betw_02_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green3')+
+  geom_point(aes(y=press_betw_01_02 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green')+
+  geom_point(aes(y=press_betw_00_01 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='yellow2')+
+  geom_point(aes(y=press_less_00    * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  
+  geom_ribbon(aes(ymin = auc_min, ymax = auc_max),fill='pink',alpha=1)+
+
+  scale_y_continuous(name = "Kiln temp (F)",
+                     breaks = sort(c(seq(0,3000,1000),400,600,1200)),
+                     sec.axis = sec_axis(~. / sec_y_scale - (sec_y_shift / sec_y_scale),
+                                         name = "Pressure",
+                                         breaks = seq(-.1,.1,.01)
+                     )
+  )+
+  scale_x_continuous(name = "Hours", 
+                     labels = number_format(scale=1/60),
+                     breaks = sort(c(seq(0,100*60,12*60)))
+  )+
+
+  # yields
+  geom_label(data = press_joined_item %>% dplyr::filter(LOTNO %in% sample) %>%
+               distinct(total_item_pct_yield),
+             aes(x = 60 * 65, y = -0.04 * sec_y_scale + sec_y_shift,
+                 label = paste0( "Yield: ", mypercent(total_item_pct_yield) )
+             ),
+             label.padding = unit(0.2, "lines"),
+             hjust=1,vjust=.5,
+             fill='lightskyblue',
+             label.size=.1
+             ) +
+  facet_wrap(~LOTNO)
+```
+
+
+##### Yields > 95%
+```{r}
+
+press_joined_item %>% 
+
+  dplyr::filter(classify == "over95") %>% 
+  
+  # kiln temp, setpoint, pressure
+  ggplot(aes(x=time))+
+  geom_line(aes(y=avg_kiln_temp))+
+  geom_line(aes(y=setpoint),color='grey50',linetype='dashed')+
+  geom_point(aes(y=pressure * sec_y_scale + sec_y_shift),alpha=.1,size=.1)+
+  
+  # color points
+  geom_point(aes(y=press_greater_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  geom_point(aes(y=press_betw_02_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green3')+
+  geom_point(aes(y=press_betw_01_02 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green')+
+  geom_point(aes(y=press_betw_00_01 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='yellow2')+
+  geom_point(aes(y=press_less_00    * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  
+  geom_ribbon(aes(ymin = auc_min, ymax = auc_max),fill='pink',alpha=1)+
+
+  scale_y_continuous(name = "Kiln temp (F)",
+                     breaks = sort(c(seq(0,3000,1000),400,600,1200)),
+                     sec.axis = sec_axis(~. / sec_y_scale - (sec_y_shift / sec_y_scale),
+                                         name = "Pressure",
+                                         breaks = seq(-.1,.1,.01)
+                     )
+  )+
+  scale_x_continuous(name = "Hours", 
+                     labels = number_format(scale=1/60),
+                     breaks = sort(c(seq(0,100*60,12*60)))
+  )+
+
+  # yields
+  geom_label(data = press_joined_item %>% dplyr::filter(LOTNO %in% sample) %>%
+               distinct(total_item_pct_yield),
+             aes(x = 60 * 65, y = -0.04 * sec_y_scale + sec_y_shift,
+                 label = paste0( "Yield: ", mypercent(total_item_pct_yield) )
+             ),
+             label.padding = unit(0.2, "lines"),
+             hjust=1,vjust=.5,
+             fill='lightskyblue',
+             label.size=.1
+             ) +
+  facet_wrap(~LOTNO)
+```
+
+##### > 50%
+
+```{r}
+press_joined_item %>% 
+
+  dplyr::filter(classify == "over50") %>% 
+  
+  # kiln temp, setpoint, pressure
+  ggplot(aes(x=time))+
+  geom_line(aes(y=avg_kiln_temp))+
+  geom_line(aes(y=setpoint),color='grey50',linetype='dashed')+
+  geom_point(aes(y=pressure * sec_y_scale + sec_y_shift),alpha=.1,size=.1)+
+  
+  # color points
+  geom_point(aes(y=press_greater_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  geom_point(aes(y=press_betw_02_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green3')+
+  geom_point(aes(y=press_betw_01_02 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green')+
+  geom_point(aes(y=press_betw_00_01 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='yellow2')+
+  geom_point(aes(y=press_less_00    * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  
+  geom_ribbon(aes(ymin = auc_min, ymax = auc_max),fill='pink',alpha=1)+
+
+  scale_y_continuous(name = "Kiln temp (F)",
+                     breaks = sort(c(seq(0,3000,1000),400,600,1200)),
+                     sec.axis = sec_axis(~. / sec_y_scale - (sec_y_shift / sec_y_scale),
+                                         name = "Pressure",
+                                         breaks = seq(-.1,.1,.01)
+                     )
+  )+
+  scale_x_continuous(name = "Hours", 
+                     labels = number_format(scale=1/60),
+                     breaks = sort(c(seq(0,100*60,12*60)))
+  )+
+
+  # yields
+  geom_label(data = press_joined_item %>% dplyr::filter(LOTNO %in% sample) %>%
+               distinct(total_item_pct_yield),
+             aes(x = 60 * 65, y = -0.04 * sec_y_scale + sec_y_shift,
+                 label = paste0( "Yield: ", mypercent(total_item_pct_yield) )
+             ),
+             label.padding = unit(0.2, "lines"),
+             hjust=1,vjust=.5,
+             fill='lightskyblue',
+             label.size=.1
+             ) +
+  facet_wrap(~LOTNO)
+```
+
+
+##### < 50%
+
+```{r}
+press_joined_item %>% 
+
+  dplyr::filter(classify == "below50") %>% 
+  
+  # kiln temp, setpoint, pressure
+  ggplot(aes(x=time))+
+  geom_line(aes(y=avg_kiln_temp))+
+  geom_line(aes(y=setpoint),color='grey50',linetype='dashed')+
+  geom_point(aes(y=pressure * sec_y_scale + sec_y_shift),alpha=.1,size=.1)+
+  
+  # color points
+  geom_point(aes(y=press_greater_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  geom_point(aes(y=press_betw_02_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green3')+
+  geom_point(aes(y=press_betw_01_02 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green')+
+  geom_point(aes(y=press_betw_00_01 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='yellow2')+
+  geom_point(aes(y=press_less_00    * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  
+  geom_ribbon(aes(ymin = auc_min, ymax = auc_max),fill='pink',alpha=1)+
+
+  scale_y_continuous(name = "Kiln temp (F)",
+                     breaks = sort(c(seq(0,3000,1000),400,600,1200)),
+                     sec.axis = sec_axis(~. / sec_y_scale - (sec_y_shift / sec_y_scale),
+                                         name = "Pressure",
+                                         breaks = seq(-.1,.1,.01)
+                     )
+  )+
+  scale_x_continuous(name = "Hours", 
+                     labels = number_format(scale=1/60),
+                     breaks = sort(c(seq(0,100*60,12*60)))
+  )+
+
+  # yields
+  geom_label(data = press_joined_item %>% dplyr::filter(LOTNO %in% sample) %>%
+               distinct(total_item_pct_yield),
+             aes(x = 60 * 65, y = -0.04 * sec_y_scale + sec_y_shift,
+                 label = paste0( "Yield: ", mypercent(total_item_pct_yield) )
+             ),
+             label.padding = unit(0.2, "lines"),
+             hjust=1,vjust=.5,
+             fill='lightskyblue',
+             label.size=.1
+             ) +
+  facet_wrap(~LOTNO)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+### 6X6X1.2 SP,12.5MMC,PSZM {.tabset}
+
+#### Item yield over time 
+
+```{r}
+item <- count(item_yields$DESCRIPTION) %>% 
+  arrange(-freq) %>% 
+  slice(17) %>% 
+  dplyr::select(x) %>% 
+  unlist()
+
+item_df <- item_yields %>% 
+  dplyr::filter(DESCRIPTION == item) %>% 
+  mutate(Yields = case_when( total_item_pct_yield >= 0.95 ~ "over95",
+                               total_item_pct_yield >= 0.5 ~  "over50",
+                               TRUE ~ "below50"))
+
+item_df %>%    
+  ggplot(aes(x=FIRE_DATE,y=total_item_pct_yield))+
+  geom_point(aes(fill=Yields),size=3, shape=21, alpha=.8)+
+  geom_smooth(method=lm, se=FALSE)+
+  geom_line(alpha=.2)+
+  # theme(legend.position = "none")+
+  scale_y_continuous(limits = c(0,1), labels = percent_format())+
+  scale_fill_brewer(type="qual",palette=2)+
+  ggtitle(paste0(item))+
+  labs(x="Fire date", y="Item yield")
+```
+
+#### LASSO
+
+```{r}
+df <- item_df %>% 
+  dplyr::select(total_item_pct_yield:aucDiff)
+
+# normalize all predictors
+df_norm <- recipe(total_item_pct_yield ~ ., data = df) %>% 
+  step_normalize(all_predictors()) %>%
+  prep() %>% 
+  juice()
+
+# split predictors and responses
+y = as.vector(df_norm$total_item_pct_yield)
+x = as.matrix(df_norm[-19])
+
+set.seed(344)
+# find best lambda value
+cv.glmmod   <- cv.glmnet(x,y,alpha=1)
+# plot(cv.glmmod)
+best.lambda <- cv.glmmod$lambda.min
+
+set.seed(344)
+# produce model
+glmmod <- glmnet(x, y, alpha=1, lambda = best.lambda)
+
+# store coefficient values
+coefs = data.frame(coef(glmmod)[,1])
+
+# plot variable importance
+tibble(data.frame(cbind(rownames(coefs), coefs))) %>% 
+  set_colnames(c("Variable", "Importance")) %>% 
+  mutate(Sign = if_else(Importance < 0, "Neg", "Pos"),
+         Importance = abs(Importance),
+         Variable = fct_reorder(Variable, Importance),
+         HJ = if_else(Importance > .5, 1,0)) %>% 
+  arrange(-Importance) %>% 
+  ggplot(aes(x=Importance,y=Variable,fill=Sign))+
+  geom_col()+
+  geom_text(aes(label=round(Importance,5), hjust=HJ))+
+  ggtitle(paste0(item, ", VI by LASSO"))
+```
+
+#### Feature plots
+
+```{r}
+item_df %>%  
+  dplyr::select(total_item_pct_yield:Yields) %>% 
+  pivot_longer(cols = precip:aucDiff, names_to = "measures", values_to="values") %>% 
+  ggplot(aes(x=values,y=total_item_pct_yield))+
+  geom_point(aes(fill=Yields),size=2,shape=21,alpha=.8)+
+  scale_y_continuous(limits = c(0,1), labels = percent_format())+
+  facet_wrap(~measures,scales='free_x')+
+  geom_smooth(method=lm, se=FALSE)
+```
+
+#### Visualize kiln plots {.tabset}
+
+##### All
+
+```{r}
+
+set.seed(5532)
+a <- item_yields %>% 
+  dplyr::filter(DESCRIPTION == item) %>% 
+  dplyr::filter(total_item_pct_yield <= .5) %>% 
+  select(LOTNO) %>% unlist() %>% sample(5) %>% as.vector()
+set.seed(5532)
+b <- item_yields %>% 
+  dplyr::filter(DESCRIPTION == item) %>% 
+  dplyr::filter(total_item_pct_yield >= .95) %>% 
+  select(LOTNO) %>% unlist() %>% sample(6) %>% as.vector()
+set.seed(5532)
+c <- item_yields %>% 
+  dplyr::filter(DESCRIPTION == item) %>% 
+  dplyr::filter((total_item_pct_yield >.5) & (total_item_pct_yield < .95)) %>% 
+  select(LOTNO)  %>% unlist() %>% sample(5) %>% as.vector()
+
+sample <- c(a,b,c)
+
+# sample <- item_yields %>% 
+#   dplyr::filter(DESCRIPTION == item) %>% 
+#   dplyr::select(LOTNO) %>% unlist() %>% 
+#   sample(16)
+
+sec_y_scale=20000
+sec_y_shift=1500
+
+press_joined_item <- press_joined %>% 
+  dplyr::filter(LOTNO %in% sample) %>%
+  left_join(
+    item_yields %>% 
+      dplyr::filter(DESCRIPTION == item) %>% 
+      dplyr::select(LOTNO,total_item_pct_yield)
+    ) %>% 
+    mutate(classify = factor(case_when( total_item_pct_yield >= 0.95 ~ "over95",
+                               total_item_pct_yield >= 0.5 ~  "over50",
+                               TRUE ~ "below50")))
+
+press_joined_item %>% 
+
+  # kiln temp, setpoint, pressure
+  ggplot(aes(x=time))+
+  geom_line(aes(y=avg_kiln_temp))+
+  geom_line(aes(y=setpoint),color='grey50',linetype='dashed')+
+  geom_point(aes(y=pressure * sec_y_scale + sec_y_shift),alpha=.1,size=.1)+
+  
+  # color points
+  geom_point(aes(y=press_greater_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  geom_point(aes(y=press_betw_02_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green3')+
+  geom_point(aes(y=press_betw_01_02 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green')+
+  geom_point(aes(y=press_betw_00_01 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='yellow2')+
+  geom_point(aes(y=press_less_00    * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  
+  geom_ribbon(aes(ymin = auc_min, ymax = auc_max),fill='pink',alpha=1)+
+
+  scale_y_continuous(name = "Kiln temp (F)",
+                     breaks = sort(c(seq(0,3000,1000),400,600,1200)),
+                     sec.axis = sec_axis(~. / sec_y_scale - (sec_y_shift / sec_y_scale),
+                                         name = "Pressure",
+                                         breaks = seq(-.1,.1,.01)
+                     )
+  )+
+  scale_x_continuous(name = "Hours", 
+                     labels = number_format(scale=1/60),
+                     breaks = sort(c(seq(0,100*60,12*60)))
+  )+
+
+  # yields
+  geom_label(data = press_joined_item %>% dplyr::filter(LOTNO %in% sample) %>%
+               distinct(total_item_pct_yield),
+             aes(x = 60 * 65, y = -0.04 * sec_y_scale + sec_y_shift,
+                 label = paste0( "Yield: ", mypercent(total_item_pct_yield) )
+             ),
+             label.padding = unit(0.2, "lines"),
+             hjust=1,vjust=.5,
+             fill='lightskyblue',
+             label.size=.1
+             ) +
+  facet_wrap(~LOTNO)
+```
+
+
+##### Yields > 95%
+```{r}
+
+press_joined_item %>% 
+
+  dplyr::filter(classify == "over95") %>% 
+  
+  # kiln temp, setpoint, pressure
+  ggplot(aes(x=time))+
+  geom_line(aes(y=avg_kiln_temp))+
+  geom_line(aes(y=setpoint),color='grey50',linetype='dashed')+
+  geom_point(aes(y=pressure * sec_y_scale + sec_y_shift),alpha=.1,size=.1)+
+  
+  # color points
+  geom_point(aes(y=press_greater_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  geom_point(aes(y=press_betw_02_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green3')+
+  geom_point(aes(y=press_betw_01_02 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green')+
+  geom_point(aes(y=press_betw_00_01 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='yellow2')+
+  geom_point(aes(y=press_less_00    * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  
+  geom_ribbon(aes(ymin = auc_min, ymax = auc_max),fill='pink',alpha=1)+
+
+  scale_y_continuous(name = "Kiln temp (F)",
+                     breaks = sort(c(seq(0,3000,1000),400,600,1200)),
+                     sec.axis = sec_axis(~. / sec_y_scale - (sec_y_shift / sec_y_scale),
+                                         name = "Pressure",
+                                         breaks = seq(-.1,.1,.01)
+                     )
+  )+
+  scale_x_continuous(name = "Hours", 
+                     labels = number_format(scale=1/60),
+                     breaks = sort(c(seq(0,100*60,12*60)))
+  )+
+
+  # yields
+  geom_label(data = press_joined_item %>% dplyr::filter(LOTNO %in% sample) %>%
+               distinct(total_item_pct_yield),
+             aes(x = 60 * 65, y = -0.04 * sec_y_scale + sec_y_shift,
+                 label = paste0( "Yield: ", mypercent(total_item_pct_yield) )
+             ),
+             label.padding = unit(0.2, "lines"),
+             hjust=1,vjust=.5,
+             fill='lightskyblue',
+             label.size=.1
+             ) +
+  facet_wrap(~LOTNO)
+```
+
+##### > 50%
+
+```{r}
+press_joined_item %>% 
+
+  dplyr::filter(classify == "over50") %>% 
+  
+  # kiln temp, setpoint, pressure
+  ggplot(aes(x=time))+
+  geom_line(aes(y=avg_kiln_temp))+
+  geom_line(aes(y=setpoint),color='grey50',linetype='dashed')+
+  geom_point(aes(y=pressure * sec_y_scale + sec_y_shift),alpha=.1,size=.1)+
+  
+  # color points
+  geom_point(aes(y=press_greater_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  geom_point(aes(y=press_betw_02_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green3')+
+  geom_point(aes(y=press_betw_01_02 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green')+
+  geom_point(aes(y=press_betw_00_01 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='yellow2')+
+  geom_point(aes(y=press_less_00    * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  
+  geom_ribbon(aes(ymin = auc_min, ymax = auc_max),fill='pink',alpha=1)+
+
+  scale_y_continuous(name = "Kiln temp (F)",
+                     breaks = sort(c(seq(0,3000,1000),400,600,1200)),
+                     sec.axis = sec_axis(~. / sec_y_scale - (sec_y_shift / sec_y_scale),
+                                         name = "Pressure",
+                                         breaks = seq(-.1,.1,.01)
+                     )
+  )+
+  scale_x_continuous(name = "Hours", 
+                     labels = number_format(scale=1/60),
+                     breaks = sort(c(seq(0,100*60,12*60)))
+  )+
+
+  # yields
+  geom_label(data = press_joined_item %>% dplyr::filter(LOTNO %in% sample) %>%
+               distinct(total_item_pct_yield),
+             aes(x = 60 * 65, y = -0.04 * sec_y_scale + sec_y_shift,
+                 label = paste0( "Yield: ", mypercent(total_item_pct_yield) )
+             ),
+             label.padding = unit(0.2, "lines"),
+             hjust=1,vjust=.5,
+             fill='lightskyblue',
+             label.size=.1
+             ) +
+  facet_wrap(~LOTNO)
+```
+
+
+##### < 50%
+
+```{r}
+press_joined_item %>% 
+
+  dplyr::filter(classify == "below50") %>% 
+  
+  # kiln temp, setpoint, pressure
+  ggplot(aes(x=time))+
+  geom_line(aes(y=avg_kiln_temp))+
+  geom_line(aes(y=setpoint),color='grey50',linetype='dashed')+
+  geom_point(aes(y=pressure * sec_y_scale + sec_y_shift),alpha=.1,size=.1)+
+  
+  # color points
+  geom_point(aes(y=press_greater_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  geom_point(aes(y=press_betw_02_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green3')+
+  geom_point(aes(y=press_betw_01_02 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green')+
+  geom_point(aes(y=press_betw_00_01 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='yellow2')+
+  geom_point(aes(y=press_less_00    * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  
+  geom_ribbon(aes(ymin = auc_min, ymax = auc_max),fill='pink',alpha=1)+
+
+  scale_y_continuous(name = "Kiln temp (F)",
+                     breaks = sort(c(seq(0,3000,1000),400,600,1200)),
+                     sec.axis = sec_axis(~. / sec_y_scale - (sec_y_shift / sec_y_scale),
+                                         name = "Pressure",
+                                         breaks = seq(-.1,.1,.01)
+                     )
+  )+
+  scale_x_continuous(name = "Hours", 
+                     labels = number_format(scale=1/60),
+                     breaks = sort(c(seq(0,100*60,12*60)))
+  )+
+
+  # yields
+  geom_label(data = press_joined_item %>% dplyr::filter(LOTNO %in% sample) %>%
+               distinct(total_item_pct_yield),
+             aes(x = 60 * 65, y = -0.04 * sec_y_scale + sec_y_shift,
+                 label = paste0( "Yield: ", mypercent(total_item_pct_yield) )
+             ),
+             label.padding = unit(0.2, "lines"),
+             hjust=1,vjust=.5,
+             fill='lightskyblue',
+             label.size=.1
+             ) +
+  facet_wrap(~LOTNO)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+### 7X7X1.25,12.5MMC,PSZM {.tabset}
+
+#### Item yield over time 
+
+```{r}
+item <- count(item_yields$DESCRIPTION) %>% 
+  arrange(-freq) %>% 
+  slice(26) %>% 
+  dplyr::select(x) %>% 
+  unlist()
+
+item_df <- item_yields %>% 
+  dplyr::filter(DESCRIPTION == item) %>% 
+  mutate(Yields = case_when( total_item_pct_yield >= 0.95 ~ "over95",
+                               total_item_pct_yield >= 0.5 ~  "over50",
+                               TRUE ~ "below50"))
+
+item_df %>%    
+  ggplot(aes(x=FIRE_DATE,y=total_item_pct_yield))+
+  geom_point(aes(fill=Yields),size=3, shape=21, alpha=.8)+
+  geom_smooth(method=lm, se=FALSE)+
+  geom_line(alpha=.2)+
+  # theme(legend.position = "none")+
+  scale_y_continuous(limits = c(0,1), labels = percent_format())+
+  scale_fill_brewer(type="qual",palette=2)+
+  ggtitle(paste0(item))+
+  labs(x="Fire date", y="Item yield")
+```
+
+#### LASSO
+
+```{r}
+df <- item_df %>% 
+  dplyr::select(total_item_pct_yield:aucDiff)
+
+# normalize all predictors
+df_norm <- recipe(total_item_pct_yield ~ ., data = df) %>% 
+  step_normalize(all_predictors()) %>%
+  prep() %>% 
+  juice()
+
+# split predictors and responses
+y = as.vector(df_norm$total_item_pct_yield)
+x = as.matrix(df_norm[-19])
+
+set.seed(344)
+# find best lambda value
+cv.glmmod   <- cv.glmnet(x,y,alpha=1)
+# plot(cv.glmmod)
+best.lambda <- cv.glmmod$lambda.min
+
+set.seed(344)
+# produce model
+glmmod <- glmnet(x, y, alpha=1, lambda = best.lambda)
+
+# store coefficient values
+coefs = data.frame(coef(glmmod)[,1])
+
+# plot variable importance
+tibble(data.frame(cbind(rownames(coefs), coefs))) %>% 
+  set_colnames(c("Variable", "Importance")) %>% 
+  mutate(Sign = if_else(Importance < 0, "Neg", "Pos"),
+         Importance = abs(Importance),
+         Variable = fct_reorder(Variable, Importance),
+         HJ = if_else(Importance > .5, 1,0)) %>% 
+  arrange(-Importance) %>% 
+  ggplot(aes(x=Importance,y=Variable,fill=Sign))+
+  geom_col()+
+  geom_text(aes(label=round(Importance,5), hjust=HJ))+
+  ggtitle(paste0(item, ", VI by LASSO"))
+```
+
+#### Feature plots
+
+```{r}
+item_df %>%  
+  dplyr::select(total_item_pct_yield:Yields) %>% 
+  pivot_longer(cols = precip:aucDiff, names_to = "measures", values_to="values") %>% 
+  ggplot(aes(x=values,y=total_item_pct_yield))+
+  geom_point(aes(fill=Yields),size=2,shape=21,alpha=.8)+
+  scale_y_continuous(limits = c(0,1), labels = percent_format())+
+  facet_wrap(~measures,scales='free_x')+
+  geom_smooth(method=lm, se=FALSE)
+```
+
+#### Visualize kiln plots {.tabset}
+
+##### All
+
+```{r}
+
+set.seed(532)
+a <- item_yields %>% 
+  dplyr::filter(DESCRIPTION == item) %>% 
+  dplyr::filter(total_item_pct_yield <= .5) %>% 
+  select(LOTNO) %>% unlist() %>% sample(5) %>% as.vector()
+set.seed(532)
+b <- item_yields %>% 
+  dplyr::filter(DESCRIPTION == item) %>% 
+  dplyr::filter(total_item_pct_yield >= .95) %>% 
+  select(LOTNO) %>% unlist() %>% sample(5) %>% as.vector()
+set.seed(552)
+c <- item_yields %>% 
+  dplyr::filter(DESCRIPTION == item) %>% 
+  dplyr::filter((total_item_pct_yield >.5) & (total_item_pct_yield < .95)) %>% 
+  select(LOTNO)  %>% unlist() %>% sample(6) %>% as.vector()
+
+sample <- c(a,b,c)
+
+# sample <- item_yields %>% 
+#   dplyr::filter(DESCRIPTION == item) %>% 
+#   dplyr::select(LOTNO) %>% unlist() %>% 
+#   sample(16)
+
+sec_y_scale=20000
+sec_y_shift=1500
+
+press_joined_item <- press_joined %>% 
+  dplyr::filter(LOTNO %in% sample) %>%
+  left_join(
+    item_yields %>% 
+      dplyr::filter(DESCRIPTION == item) %>% 
+      dplyr::select(LOTNO,total_item_pct_yield)
+    ) %>% 
+    mutate(classify = factor(case_when( total_item_pct_yield >= 0.95 ~ "over95",
+                               total_item_pct_yield >= 0.5 ~  "over50",
+                               TRUE ~ "below50")))
+
+press_joined_item %>% 
+
+  # kiln temp, setpoint, pressure
+  ggplot(aes(x=time))+
+  geom_line(aes(y=avg_kiln_temp))+
+  geom_line(aes(y=setpoint),color='grey50',linetype='dashed')+
+  geom_point(aes(y=pressure * sec_y_scale + sec_y_shift),alpha=.1,size=.1)+
+  
+  # color points
+  geom_point(aes(y=press_greater_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  geom_point(aes(y=press_betw_02_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green3')+
+  geom_point(aes(y=press_betw_01_02 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green')+
+  geom_point(aes(y=press_betw_00_01 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='yellow2')+
+  geom_point(aes(y=press_less_00    * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  
+  geom_ribbon(aes(ymin = auc_min, ymax = auc_max),fill='pink',alpha=1)+
+
+  scale_y_continuous(name = "Kiln temp (F)",
+                     breaks = sort(c(seq(0,3000,1000),400,600,1200)),
+                     sec.axis = sec_axis(~. / sec_y_scale - (sec_y_shift / sec_y_scale),
+                                         name = "Pressure",
+                                         breaks = seq(-.1,.1,.01)
+                     )
+  )+
+  scale_x_continuous(name = "Hours", 
+                     labels = number_format(scale=1/60),
+                     breaks = sort(c(seq(0,100*60,12*60)))
+  )+
+
+  # yields
+  geom_label(data = press_joined_item %>% dplyr::filter(LOTNO %in% sample) %>%
+               distinct(total_item_pct_yield),
+             aes(x = 60 * 65, y = -0.04 * sec_y_scale + sec_y_shift,
+                 label = paste0( "Yield: ", mypercent(total_item_pct_yield) )
+             ),
+             label.padding = unit(0.2, "lines"),
+             hjust=1,vjust=.5,
+             fill='lightskyblue',
+             label.size=.1
+             ) +
+  facet_wrap(~LOTNO)
+```
+
+
+##### Yields > 95%
+```{r}
+
+press_joined_item %>% 
+
+  dplyr::filter(classify == "over95") %>% 
+  
+  # kiln temp, setpoint, pressure
+  ggplot(aes(x=time))+
+  geom_line(aes(y=avg_kiln_temp))+
+  geom_line(aes(y=setpoint),color='grey50',linetype='dashed')+
+  geom_point(aes(y=pressure * sec_y_scale + sec_y_shift),alpha=.1,size=.1)+
+  
+  # color points
+  geom_point(aes(y=press_greater_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  geom_point(aes(y=press_betw_02_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green3')+
+  geom_point(aes(y=press_betw_01_02 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green')+
+  geom_point(aes(y=press_betw_00_01 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='yellow2')+
+  geom_point(aes(y=press_less_00    * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  
+  geom_ribbon(aes(ymin = auc_min, ymax = auc_max),fill='pink',alpha=1)+
+
+  scale_y_continuous(name = "Kiln temp (F)",
+                     breaks = sort(c(seq(0,3000,1000),400,600,1200)),
+                     sec.axis = sec_axis(~. / sec_y_scale - (sec_y_shift / sec_y_scale),
+                                         name = "Pressure",
+                                         breaks = seq(-.1,.1,.01)
+                     )
+  )+
+  scale_x_continuous(name = "Hours", 
+                     labels = number_format(scale=1/60),
+                     breaks = sort(c(seq(0,100*60,12*60)))
+  )+
+
+  # yields
+  geom_label(data = press_joined_item %>% dplyr::filter(LOTNO %in% sample) %>%
+               distinct(total_item_pct_yield),
+             aes(x = 60 * 65, y = -0.04 * sec_y_scale + sec_y_shift,
+                 label = paste0( "Yield: ", mypercent(total_item_pct_yield) )
+             ),
+             label.padding = unit(0.2, "lines"),
+             hjust=1,vjust=.5,
+             fill='lightskyblue',
+             label.size=.1
+             ) +
+  facet_wrap(~LOTNO)
+```
+
+##### > 50%
+
+```{r}
+press_joined_item %>% 
+
+  dplyr::filter(classify == "over50") %>% 
+  
+  # kiln temp, setpoint, pressure
+  ggplot(aes(x=time))+
+  geom_line(aes(y=avg_kiln_temp))+
+  geom_line(aes(y=setpoint),color='grey50',linetype='dashed')+
+  geom_point(aes(y=pressure * sec_y_scale + sec_y_shift),alpha=.1,size=.1)+
+  
+  # color points
+  geom_point(aes(y=press_greater_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  geom_point(aes(y=press_betw_02_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green3')+
+  geom_point(aes(y=press_betw_01_02 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green')+
+  geom_point(aes(y=press_betw_00_01 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='yellow2')+
+  geom_point(aes(y=press_less_00    * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  
+  geom_ribbon(aes(ymin = auc_min, ymax = auc_max),fill='pink',alpha=1)+
+
+  scale_y_continuous(name = "Kiln temp (F)",
+                     breaks = sort(c(seq(0,3000,1000),400,600,1200)),
+                     sec.axis = sec_axis(~. / sec_y_scale - (sec_y_shift / sec_y_scale),
+                                         name = "Pressure",
+                                         breaks = seq(-.1,.1,.01)
+                     )
+  )+
+  scale_x_continuous(name = "Hours", 
+                     labels = number_format(scale=1/60),
+                     breaks = sort(c(seq(0,100*60,12*60)))
+  )+
+
+  # yields
+  geom_label(data = press_joined_item %>% dplyr::filter(LOTNO %in% sample) %>%
+               distinct(total_item_pct_yield),
+             aes(x = 60 * 65, y = -0.04 * sec_y_scale + sec_y_shift,
+                 label = paste0( "Yield: ", mypercent(total_item_pct_yield) )
+             ),
+             label.padding = unit(0.2, "lines"),
+             hjust=1,vjust=.5,
+             fill='lightskyblue',
+             label.size=.1
+             ) +
+  facet_wrap(~LOTNO)
+```
+
+
+##### < 50%
+
+```{r}
+press_joined_item %>% 
+
+  dplyr::filter(classify == "below50") %>% 
+  
+  # kiln temp, setpoint, pressure
+  ggplot(aes(x=time))+
+  geom_line(aes(y=avg_kiln_temp))+
+  geom_line(aes(y=setpoint),color='grey50',linetype='dashed')+
+  geom_point(aes(y=pressure * sec_y_scale + sec_y_shift),alpha=.1,size=.1)+
+  
+  # color points
+  geom_point(aes(y=press_greater_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  geom_point(aes(y=press_betw_02_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green3')+
+  geom_point(aes(y=press_betw_01_02 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green')+
+  geom_point(aes(y=press_betw_00_01 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='yellow2')+
+  geom_point(aes(y=press_less_00    * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  
+  geom_ribbon(aes(ymin = auc_min, ymax = auc_max),fill='pink',alpha=1)+
+
+  scale_y_continuous(name = "Kiln temp (F)",
+                     breaks = sort(c(seq(0,3000,1000),400,600,1200)),
+                     sec.axis = sec_axis(~. / sec_y_scale - (sec_y_shift / sec_y_scale),
+                                         name = "Pressure",
+                                         breaks = seq(-.1,.1,.01)
+                     )
+  )+
+  scale_x_continuous(name = "Hours", 
+                     labels = number_format(scale=1/60),
+                     breaks = sort(c(seq(0,100*60,12*60)))
+  )+
+
+  # yields
+  geom_label(data = press_joined_item %>% dplyr::filter(LOTNO %in% sample) %>%
+               distinct(total_item_pct_yield),
+             aes(x = 60 * 65, y = -0.04 * sec_y_scale + sec_y_shift,
+                 label = paste0( "Yield: ", mypercent(total_item_pct_yield) )
+             ),
+             label.padding = unit(0.2, "lines"),
+             hjust=1,vjust=.5,
+             fill='lightskyblue',
+             label.size=.1
+             ) +
+  facet_wrap(~LOTNO)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+### 4X4X1,12.5MMC,PSZM {.tabset}
+
+#### Item yield over time 
+
+```{r}
+item <- count(item_yields$DESCRIPTION) %>% 
+  arrange(-freq) %>% 
+  slice(27) %>% 
+  dplyr::select(x) %>% 
+  unlist()
+
+item_df <- item_yields %>% 
+  dplyr::filter(DESCRIPTION == item) %>% 
+  mutate(Yields = case_when( total_item_pct_yield >= 0.95 ~ "over95",
+                               total_item_pct_yield >= 0.5 ~  "over50",
+                               TRUE ~ "below50"))
+
+item_df %>%    
+  ggplot(aes(x=FIRE_DATE,y=total_item_pct_yield))+
+  geom_point(aes(fill=Yields),size=3, shape=21, alpha=.8)+
+  geom_smooth(method=lm, se=FALSE)+
+  geom_line(alpha=.2)+
+  # theme(legend.position = "none")+
+  scale_y_continuous(limits = c(0,1), labels = percent_format())+
+  scale_fill_brewer(type="qual",palette=2)+
+  ggtitle(paste0(item))+
+  labs(x="Fire date", y="Item yield")
+```
+
+#### LASSO
+
+```{r}
+df <- item_df %>% 
+  dplyr::select(total_item_pct_yield:aucDiff)
+
+# normalize all predictors
+df_norm <- recipe(total_item_pct_yield ~ ., data = df) %>% 
+  step_normalize(all_predictors()) %>%
+  prep() %>% 
+  juice()
+
+# split predictors and responses
+y = as.vector(df_norm$total_item_pct_yield)
+x = as.matrix(df_norm[-19])
+
+set.seed(344)
+# find best lambda value
+cv.glmmod   <- cv.glmnet(x,y,alpha=1)
+# plot(cv.glmmod)
+best.lambda <- cv.glmmod$lambda.min
+
+set.seed(344)
+# produce model
+glmmod <- glmnet(x, y, alpha=1, lambda = best.lambda)
+
+# store coefficient values
+coefs = data.frame(coef(glmmod)[,1])
+
+# plot variable importance
+tibble(data.frame(cbind(rownames(coefs), coefs))) %>% 
+  set_colnames(c("Variable", "Importance")) %>% 
+  mutate(Sign = if_else(Importance < 0, "Neg", "Pos"),
+         Importance = abs(Importance),
+         Variable = fct_reorder(Variable, Importance),
+         HJ = if_else(Importance > .5, 1,0)) %>% 
+  arrange(-Importance) %>% 
+  ggplot(aes(x=Importance,y=Variable,fill=Sign))+
+  geom_col()+
+  geom_text(aes(label=round(Importance,5), hjust=HJ))+
+  ggtitle(paste0(item, ", VI by LASSO"))
+```
+
+#### Feature plots
+
+```{r}
+item_df %>%  
+  dplyr::select(total_item_pct_yield:Yields) %>% 
+  pivot_longer(cols = precip:aucDiff, names_to = "measures", values_to="values") %>% 
+  ggplot(aes(x=values,y=total_item_pct_yield))+
+  geom_point(aes(fill=Yields),size=2,shape=21,alpha=.8)+
+  scale_y_continuous(limits = c(0,1), labels = percent_format())+
+  facet_wrap(~measures,scales='free_x')+
+  geom_smooth(method=lm, se=FALSE)
+```
+
+#### Visualize kiln plots {.tabset}
+
+
+##### All
+
+```{r}
+
+set.seed(532)
+a <- item_yields %>% 
+  dplyr::filter(DESCRIPTION == item) %>% 
+  dplyr::filter(total_item_pct_yield <= .5) %>% 
+  select(LOTNO) %>% unlist() %>% sample(3) %>% as.vector()
+set.seed(532)
+b <- item_yields %>% 
+  dplyr::filter(DESCRIPTION == item) %>% 
+  dplyr::filter(total_item_pct_yield >= .95) %>% 
+  select(LOTNO) %>% unlist() %>% sample(6) %>% as.vector()
+set.seed(552)
+c <- item_yields %>% 
+  dplyr::filter(DESCRIPTION == item) %>% 
+  dplyr::filter((total_item_pct_yield >.5) & (total_item_pct_yield < .95)) %>% 
+  select(LOTNO)  %>% unlist() %>% sample(7) %>% as.vector()
+
+sample <- c(a,b,c)
+
+# sample <- item_yields %>% 
+#   dplyr::filter(DESCRIPTION == item) %>% 
+#   dplyr::select(LOTNO) %>% unlist() %>% 
+#   sample(16)
+
+sec_y_scale=20000
+sec_y_shift=1500
+
+press_joined_item <- press_joined %>% 
+  dplyr::filter(LOTNO %in% sample) %>%
+  left_join(
+    item_yields %>% 
+      dplyr::filter(DESCRIPTION == item) %>% 
+      dplyr::select(LOTNO,total_item_pct_yield)
+    ) %>% 
+    mutate(classify = factor(case_when( total_item_pct_yield >= 0.95 ~ "over95",
+                               total_item_pct_yield >= 0.5 ~  "over50",
+                               TRUE ~ "below50")))
+
+press_joined_item %>% 
+
+  # kiln temp, setpoint, pressure
+  ggplot(aes(x=time))+
+  geom_line(aes(y=avg_kiln_temp))+
+  geom_line(aes(y=setpoint),color='grey50',linetype='dashed')+
+  geom_point(aes(y=pressure * sec_y_scale + sec_y_shift),alpha=.1,size=.1)+
+  
+  # color points
+  geom_point(aes(y=press_greater_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  geom_point(aes(y=press_betw_02_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green3')+
+  geom_point(aes(y=press_betw_01_02 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green')+
+  geom_point(aes(y=press_betw_00_01 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='yellow2')+
+  geom_point(aes(y=press_less_00    * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  
+  geom_ribbon(aes(ymin = auc_min, ymax = auc_max),fill='pink',alpha=1)+
+
+  scale_y_continuous(name = "Kiln temp (F)",
+                     breaks = sort(c(seq(0,3000,1000),400,600,1200)),
+                     sec.axis = sec_axis(~. / sec_y_scale - (sec_y_shift / sec_y_scale),
+                                         name = "Pressure",
+                                         breaks = seq(-.1,.1,.01)
+                     )
+  )+
+  scale_x_continuous(name = "Hours", 
+                     labels = number_format(scale=1/60),
+                     breaks = sort(c(seq(0,100*60,12*60)))
+  )+
+
+  # yields
+  geom_label(data = press_joined_item %>% dplyr::filter(LOTNO %in% sample) %>%
+               distinct(total_item_pct_yield),
+             aes(x = 60 * 65, y = -0.04 * sec_y_scale + sec_y_shift,
+                 label = paste0( "Yield: ", mypercent(total_item_pct_yield) )
+             ),
+             label.padding = unit(0.2, "lines"),
+             hjust=1,vjust=.5,
+             fill='lightskyblue',
+             label.size=.1
+             ) +
+  facet_wrap(~LOTNO)
+```
+
+
+##### Yields > 95%
+```{r}
+
+press_joined_item %>% 
+
+  dplyr::filter(classify == "over95") %>% 
+  
+  # kiln temp, setpoint, pressure
+  ggplot(aes(x=time))+
+  geom_line(aes(y=avg_kiln_temp))+
+  geom_line(aes(y=setpoint),color='grey50',linetype='dashed')+
+  geom_point(aes(y=pressure * sec_y_scale + sec_y_shift),alpha=.1,size=.1)+
+  
+  # color points
+  geom_point(aes(y=press_greater_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  geom_point(aes(y=press_betw_02_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green3')+
+  geom_point(aes(y=press_betw_01_02 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green')+
+  geom_point(aes(y=press_betw_00_01 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='yellow2')+
+  geom_point(aes(y=press_less_00    * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  
+  geom_ribbon(aes(ymin = auc_min, ymax = auc_max),fill='pink',alpha=1)+
+
+  scale_y_continuous(name = "Kiln temp (F)",
+                     breaks = sort(c(seq(0,3000,1000),400,600,1200)),
+                     sec.axis = sec_axis(~. / sec_y_scale - (sec_y_shift / sec_y_scale),
+                                         name = "Pressure",
+                                         breaks = seq(-.1,.1,.01)
+                     )
+  )+
+  scale_x_continuous(name = "Hours", 
+                     labels = number_format(scale=1/60),
+                     breaks = sort(c(seq(0,100*60,12*60)))
+  )+
+
+  # yields
+  geom_label(data = press_joined_item %>% dplyr::filter(LOTNO %in% sample) %>%
+               distinct(total_item_pct_yield),
+             aes(x = 60 * 65, y = -0.04 * sec_y_scale + sec_y_shift,
+                 label = paste0( "Yield: ", mypercent(total_item_pct_yield) )
+             ),
+             label.padding = unit(0.2, "lines"),
+             hjust=1,vjust=.5,
+             fill='lightskyblue',
+             label.size=.1
+             ) +
+  facet_wrap(~LOTNO)
+```
+
+##### > 50%
+
+```{r}
+press_joined_item %>% 
+
+  dplyr::filter(classify == "over50") %>% 
+  
+  # kiln temp, setpoint, pressure
+  ggplot(aes(x=time))+
+  geom_line(aes(y=avg_kiln_temp))+
+  geom_line(aes(y=setpoint),color='grey50',linetype='dashed')+
+  geom_point(aes(y=pressure * sec_y_scale + sec_y_shift),alpha=.1,size=.1)+
+  
+  # color points
+  geom_point(aes(y=press_greater_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  geom_point(aes(y=press_betw_02_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green3')+
+  geom_point(aes(y=press_betw_01_02 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green')+
+  geom_point(aes(y=press_betw_00_01 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='yellow2')+
+  geom_point(aes(y=press_less_00    * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  
+  geom_ribbon(aes(ymin = auc_min, ymax = auc_max),fill='pink',alpha=1)+
+
+  scale_y_continuous(name = "Kiln temp (F)",
+                     breaks = sort(c(seq(0,3000,1000),400,600,1200)),
+                     sec.axis = sec_axis(~. / sec_y_scale - (sec_y_shift / sec_y_scale),
+                                         name = "Pressure",
+                                         breaks = seq(-.1,.1,.01)
+                     )
+  )+
+  scale_x_continuous(name = "Hours", 
+                     labels = number_format(scale=1/60),
+                     breaks = sort(c(seq(0,100*60,12*60)))
+  )+
+
+  # yields
+  geom_label(data = press_joined_item %>% dplyr::filter(LOTNO %in% sample) %>%
+               distinct(total_item_pct_yield),
+             aes(x = 60 * 65, y = -0.04 * sec_y_scale + sec_y_shift,
+                 label = paste0( "Yield: ", mypercent(total_item_pct_yield) )
+             ),
+             label.padding = unit(0.2, "lines"),
+             hjust=1,vjust=.5,
+             fill='lightskyblue',
+             label.size=.1
+             ) +
+  facet_wrap(~LOTNO)
+```
+
+
+##### < 50%
+
+```{r}
+press_joined_item %>% 
+
+  dplyr::filter(classify == "below50") %>% 
+  
+  # kiln temp, setpoint, pressure
+  ggplot(aes(x=time))+
+  geom_line(aes(y=avg_kiln_temp))+
+  geom_line(aes(y=setpoint),color='grey50',linetype='dashed')+
+  geom_point(aes(y=pressure * sec_y_scale + sec_y_shift),alpha=.1,size=.1)+
+  
+  # color points
+  geom_point(aes(y=press_greater_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  geom_point(aes(y=press_betw_02_03 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green3')+
+  geom_point(aes(y=press_betw_01_02 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='green')+
+  geom_point(aes(y=press_betw_00_01 * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='yellow2')+
+  geom_point(aes(y=press_less_00    * sec_y_scale + sec_y_shift),alpha=1,size=.1,color='red')+
+  
+  geom_ribbon(aes(ymin = auc_min, ymax = auc_max),fill='pink',alpha=1)+
+
+  scale_y_continuous(name = "Kiln temp (F)",
+                     breaks = sort(c(seq(0,3000,1000),400,600,1200)),
+                     sec.axis = sec_axis(~. / sec_y_scale - (sec_y_shift / sec_y_scale),
+                                         name = "Pressure",
+                                         breaks = seq(-.1,.1,.01)
+                     )
+  )+
+  scale_x_continuous(name = "Hours", 
+                     labels = number_format(scale=1/60),
+                     breaks = sort(c(seq(0,100*60,12*60)))
+  )+
+
+  # yields
+  geom_label(data = press_joined_item %>% dplyr::filter(LOTNO %in% sample) %>%
+               distinct(total_item_pct_yield),
+             aes(x = 60 * 65, y = -0.04 * sec_y_scale + sec_y_shift,
+                 label = paste0( "Yield: ", mypercent(total_item_pct_yield) )
+             ),
+             label.padding = unit(0.2, "lines"),
+             hjust=1,vjust=.5,
+             fill='lightskyblue',
+             label.size=.1
+             ) +
+  facet_wrap(~LOTNO)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#
