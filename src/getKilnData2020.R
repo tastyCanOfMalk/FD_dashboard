@@ -380,6 +380,12 @@ for(kiln in kilns[c(7)]){
     df <- left_join(df,  df3, by=c("LOTNO", "date", "time"))
     df <- left_join(df,  df4, by=c("LOTNO", "date", "time"))
     
+    # fix incorrect colnames
+    if(lotno == "070620G"){
+     df <- df %>% 
+       set_colnames(c("date","time","tc_t1","tc_t2","tc_t3","tc_t4","tmprsp","LOTNO","tc_b1","tc_b2","tc_b3","tc_b4","bzone_sp","txsa_out","bxa_out","txairwsp","bxairwsp","kiln_pr","kpress_wsp","tc_10","tc_9"))
+     }
+    
     # rename columns
     df <- df %>% 
       dplyr::mutate(
@@ -429,6 +435,7 @@ kilns_G_2020 <- select_mutate(kilns_G)
 
 # length(levels(kilns_G_2020$LOTNO))
 # plot_range(kilns_G_2020,1,56)
+# plot_range(kilns_G_2020,46,59)
 
 
 # KILNS H -----------------------------------------------------------------
